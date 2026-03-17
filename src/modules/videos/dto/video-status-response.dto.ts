@@ -19,6 +19,12 @@ export class VideoStatusResponseDto {
   @ApiProperty({ enum: VideoStatus, example: VideoStatus.PROCESSING })
   status: VideoStatus;
 
+  @ApiPropertyOptional({
+    example: '42',
+    description: 'BullMQ job ID. Use with GET /queue/jobs/:jobId for raw queue state.',
+  })
+  queueJobId?: string;
+
   @ApiProperty({ example: '2026-03-17T12:00:00.000Z' })
   createdAt: Date;
 
@@ -41,6 +47,7 @@ export class VideoStatusResponseDto {
     const dto = new VideoStatusResponseDto();
     dto.id = video.id;
     dto.status = video.status;
+    dto.queueJobId = video.queueJobId ?? undefined;
     dto.createdAt = video.createdAt;
     dto.updatedAt = video.updatedAt;
     dto.errorMessage = video.errorMessage ?? undefined;

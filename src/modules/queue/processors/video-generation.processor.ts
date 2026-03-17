@@ -1,47 +1,59 @@
-import {
-  Processor,
-  Process,
-  OnQueueActive,
-  OnQueueCompleted,
-  OnQueueFailed,
-} from '@nestjs/bull';
+import { Processor, WorkerHost, OnWorkerActive, OnWorkerCompleted, OnWorkerFailed } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
-import { Job } from 'bull';
+import { Job } from 'bullmq';
 import { VideosService } from '../../videos/videos.service';
 import { AiService } from '../../ai/ai.service';
 import { StorageService } from '../../storage/storage.service';
 import { VideoStatus } from '../../videos/enums/video-status.enum';
-import { VIDEO_GENERATION_QUEUE, VIDEO_GENERATION_JOB } from '../constants/queue.constants';
+import { VIDEO_GENERATION_QUEUE, VideoJobName } from '../constants/queue.constants';
 
 interface VideoGenerationJobData {
   videoId: string;
 }
 
 @Processor(VIDEO_GENERATION_QUEUE)
-export class VideoGenerationProcessor {
+export class VideoGenerationProcessor extends WorkerHost {
   private readonly logger = new Logger(VideoGenerationProcessor.name);
 
   constructor(
     private readonly videosService: VideosService,
     private readonly aiService: AiService,
     private readonly storageService: StorageService,
-  ) {}
+  ) {
+    super();
+  }
 
-  @Process(VIDEO_GENERATION_JOB)
-  async handleVideoGeneration(job: Job<VideoGenerationJobData>): Promise<void> {
+  async process(job: Job<VideoGenerationJobData>): Promise<void> {
+    switch (job.name) {
+      case VideoJobName.GENERATE:
+        return this.handleVideoGeneration(job);
+      default:
+        this.logger.warn(`Unknown job name: ${job.name}`);
+    }
+  }
+
+  private async handleVideoGeneration(job: Job<VideoGenerationJobData>): Promise<void> {
     const { videoId } = job.data;
-    this.logger.log(`Processing video generation job for videoId: ${videoId}`);
+    this.logger.log(`Processing video generation job ${job.id} for videoId: ${videoId} (attempt ${job.attemptsMade + 1}/${job.opts.attempts ?? 1})`);
+
+    const maxAttempts = job.opts.attempts ?? 1;
+    const isFinalAttempt = job.attemptsMade >= maxAttempts - 1;
 
     try {
       const video = await this.videosService.findById(videoId);
 
-      // Mark as processing
-      await this.videosService.updateStatus(videoId, VideoStatus.PROCESSING);
-      await job.progress(10);
+      // Mark as processing and record progress in metadata
+      await this.videosService.updateStatus(videoId, VideoStatus.PROCESSING, {
+        metadata: { progressPercent: 10, progressMessage: 'Starting generation...' },
+      });
+      await job.updateProgress(10);
 
-      // Optionally enhance prompt with AI
+      // Enhance prompt with AI
       const enhancedPrompt = await this.aiService.enhancePrompt(video.prompt);
-      await job.progress(20);
+      await this.videosService.updateStatus(videoId, VideoStatus.PROCESSING, {
+        metadata: { progressPercent: 20, progressMessage: 'Prompt enhanced, submitting to AI provider...' },
+      });
+      await job.updateProgress(20);
 
       // Submit to AI provider
       const generationResult = await this.aiService.generateVideo({
@@ -52,63 +64,86 @@ export class VideoGenerationProcessor {
         fps: video.fps,
         model: video.model,
       });
-      await job.progress(40);
+      await this.videosService.updateStatus(videoId, VideoStatus.PROCESSING, {
+        metadata: {
+          progressPercent: 40,
+          progressMessage: 'Job submitted, waiting for AI provider...',
+          aiJobId: generationResult.jobId,
+          estimatedSecondsRemaining: generationResult.estimatedDurationMs
+            ? Math.ceil(generationResult.estimatedDurationMs / 1000)
+            : undefined,
+        },
+      });
+      await job.updateProgress(40);
 
-      // Poll for completion (simplified; use webhooks in production)
+      // Poll AI provider for completion
       let status = generationResult.status;
-      let attempts = 0;
-      const maxAttempts = 30;
+      let pollAttempts = 0;
+      const maxPollAttempts = 30;
 
-      while (status === 'processing' && attempts < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, 10000));
+      while (status === 'processing' && pollAttempts < maxPollAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 10_000));
         const result = await this.aiService.getGenerationStatus(generationResult.jobId);
         status = result.status;
-        attempts++;
+        pollAttempts++;
 
-        const progress = 40 + Math.min(50, attempts * 2);
-        await job.progress(progress);
+        const progressPercent = 40 + Math.min(50, pollAttempts * 2);
+        const estimatedSecondsRemaining = Math.max(0, (maxPollAttempts - pollAttempts) * 10);
+        await this.videosService.updateStatus(videoId, VideoStatus.PROCESSING, {
+          metadata: {
+            progressPercent,
+            progressMessage: `Rendering... (poll ${pollAttempts}/${maxPollAttempts})`,
+            estimatedSecondsRemaining,
+          },
+        });
+        await job.updateProgress(progressPercent);
 
         if (result.videoUrl) {
-          // Upload to our storage
           const storedUrl = await this.storageService.uploadFromUrl(
             result.videoUrl,
             `videos/${videoId}/output.mp4`,
           );
-
           await this.videosService.updateStatus(videoId, VideoStatus.COMPLETED, {
             videoUrl: storedUrl,
             thumbnailUrl: result.thumbnailUrl,
+            metadata: { progressPercent: 100, progressMessage: 'Completed' },
           });
-          await job.progress(100);
+          await job.updateProgress(100);
           return;
         }
       }
 
-      if (status !== 'completed') {
-        throw new Error(`Generation timed out or failed after ${attempts} attempts`);
-      }
+      throw new Error(`AI provider did not return a video after ${pollAttempts} polling attempts`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Video generation failed for ${videoId}: ${errorMessage}`);
-      await this.videosService.updateStatus(videoId, VideoStatus.FAILED, {
-        errorMessage,
-      });
-      throw error;
+      this.logger.error(
+        `Video generation failed for ${videoId} (attempt ${job.attemptsMade + 1}): ${errorMessage}`,
+      );
+
+      // Only persist FAILED status on the last attempt; keep PROCESSING on intermediate failures
+      // so the status reflects that a retry is coming.
+      if (isFinalAttempt) {
+        await this.videosService.updateStatus(videoId, VideoStatus.FAILED, { errorMessage });
+      }
+
+      throw error; // BullMQ will retry if attempts remain
     }
   }
 
-  @OnQueueActive()
+  @OnWorkerActive()
   onActive(job: Job) {
-    this.logger.log(`Job ${job.id} (${job.name}) started`);
+    this.logger.log(`Job ${job.id} (${job.name}) became active`);
   }
 
-  @OnQueueCompleted()
+  @OnWorkerCompleted()
   onCompleted(job: Job) {
-    this.logger.log(`Job ${job.id} (${job.name}) completed`);
+    this.logger.log(`Job ${job.id} (${job.name}) completed successfully`);
   }
 
-  @OnQueueFailed()
-  onFailed(job: Job, error: Error) {
-    this.logger.error(`Job ${job.id} (${job.name}) failed: ${error.message}`);
+  @OnWorkerFailed()
+  onFailed(job: Job | undefined, error: Error) {
+    this.logger.error(
+      `Job ${job?.id ?? 'unknown'} (${job?.name ?? '?'}) failed: ${error.message}`,
+    );
   }
 }

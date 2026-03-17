@@ -6,8 +6,8 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { InjectQueue } from '@nestjs/bull';
-import { Queue } from 'bull';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { Video } from './entities/video.entity';
 import { CreateVideoDto } from './dto/create-video.dto';
 import { UpdateVideoDto } from './dto/update-video.dto';
@@ -39,7 +39,9 @@ export class VideosService {
       status: VideoStatus.PENDING,
     });
     const saved = await this.videoRepository.save(video);
-    await this.videoQueue.add(VIDEO_GENERATION_JOB, { videoId: saved.id });
+    const job = await this.videoQueue.add(VIDEO_GENERATION_JOB, { videoId: saved.id });
+    await this.videoRepository.update(saved.id, { queueJobId: String(job.id) });
+    saved.queueJobId = String(job.id);
     return saved;
   }
 
@@ -133,7 +135,7 @@ export class VideosService {
   async updateStatus(
     id: string,
     status: VideoStatus,
-    extra?: Partial<Pick<Video, 'videoUrl' | 'thumbnailUrl' | 'errorMessage' | 'durationSeconds'>>,
+    extra?: Partial<Pick<Video, 'videoUrl' | 'thumbnailUrl' | 'errorMessage' | 'durationSeconds' | 'metadata'>>,
   ): Promise<Video> {
     await this.videoRepository.update(id, { status, ...extra });
     return this.findById(id);

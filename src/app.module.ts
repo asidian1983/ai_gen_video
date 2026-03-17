@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { BullModule } from '@nestjs/bull';
+import { BullMQModule } from '@nestjs/bullmq';
 import { WinstonModule } from 'nest-winston';
 import * as winston from 'winston';
 import configuration from './config/configuration';
@@ -88,19 +88,13 @@ import { StorageModule } from './modules/storage/storage.module';
     }),
 
     // Queue
-    BullModule.forRootAsync({
+    BullMQModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        redis: {
+        connection: {
           host: config.get('redis.host'),
           port: config.get<number>('redis.port'),
           password: config.get('redis.password') || undefined,
-        },
-        defaultJobOptions: {
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 5000 },
-          removeOnComplete: 100,
-          removeOnFail: 500,
         },
       }),
     }),
