@@ -51,6 +51,9 @@ export class Video {
   @Column({ nullable: true })
   model: string;
 
+  @Column({ nullable: true })
+  queueJobId: string;
+
   @Column({ type: 'jsonb', nullable: true, default: {} })
   metadata: Record<string, any>;
 

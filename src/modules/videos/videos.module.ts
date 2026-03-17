@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { BullModule } from '@nestjs/bull';
+import { BullMQModule } from '@nestjs/bullmq';
 import { VideosController } from './videos.controller';
 import { VideosService } from './videos.service';
 import { Video } from './entities/video.entity';
@@ -10,7 +10,7 @@ import { VIDEO_GENERATION_QUEUE } from '../queue/constants/queue.constants';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Video]),
-    BullModule.registerQueue({ name: VIDEO_GENERATION_QUEUE }),
+    BullMQModule.registerQueue({ name: VIDEO_GENERATION_QUEUE }),
     StorageModule,
   ],
   controllers: [VideosController],

@@ -32,6 +32,12 @@ export class VideoResponseDto {
   status: VideoStatus;
 
   @ApiPropertyOptional({
+    example: '42',
+    description: 'BullMQ job ID. Use with GET /queue/jobs/:jobId for raw queue state.',
+  })
+  queueJobId?: string;
+
+  @ApiPropertyOptional({
     example: 'https://bucket.s3.us-east-1.amazonaws.com/videos/550e8400/output.mp4',
   })
   videoUrl?: string;
@@ -63,6 +69,7 @@ export class VideoResponseDto {
     dto.prompt = video.prompt;
     dto.negativePrompt = video.negativePrompt ?? undefined;
     dto.status = video.status;
+    dto.queueJobId = video.queueJobId ?? undefined;
     dto.videoUrl = video.videoUrl ?? undefined;
     dto.thumbnailUrl = video.thumbnailUrl ?? undefined;
     dto.durationSeconds = video.durationSeconds ?? undefined;
