@@ -2,67 +2,69 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { GenerateVideoParams, GenerateVideoResult } from './interfaces/ai-provider.interface';
+import { FakeVideoProvider } from './providers/fake-video.provider';
 
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
   private readonly openai: OpenAI;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly fakeVideoProvider: FakeVideoProvider,
+  ) {
     this.openai = new OpenAI({
       apiKey: this.configService.get<string>('ai.openaiApiKey'),
     });
   }
 
-  async generateVideo(params: GenerateVideoParams): Promise<GenerateVideoResult> {
-    this.logger.log(`Starting video generation for prompt: "${params.prompt.slice(0, 80)}..."`);
-
-    // NOTE: OpenAI does not yet have a video generation API.
-    // This is a placeholder that demonstrates the pattern.
-    // Replace with your actual AI video provider (RunwayML, Stability AI, etc.)
-    try {
-      const provider = this.configService.get<string>('ai.videoProvider');
-      this.logger.log(`Using AI video provider: ${provider}`);
-
-      // Simulate async generation job submission
-      // In production, replace with actual API call:
-      //   const response = await this.runwayClient.generate({ prompt: params.prompt });
-      //   return { jobId: response.taskId, status: 'processing' };
-
-      return {
-        jobId: `mock-job-${Date.now()}`,
-        status: 'processing',
-        estimatedDurationMs: 60000,
-      };
-    } catch (error) {
-      this.logger.error('AI video generation failed', error);
-      throw error;
-    }
+  /**
+   * Submit a video generation job to the AI provider.
+   * videoId is passed so the fake provider can generate a unique URL per video.
+   *
+   * In production: replace with actual provider API call
+   *   e.g. const res = await this.runwayClient.generate({ prompt });
+   *        return { jobId: res.taskId, status: 'processing' };
+   */
+  async generateVideo(params: GenerateVideoParams, videoId: string): Promise<GenerateVideoResult> {
+    this.logger.log(`Submitting video generation job for videoId: ${videoId}`);
+    const provider = this.configService.get<string>('ai.videoProvider', 'fake');
+    this.logger.log(`Using AI video provider: ${provider}`);
+    return this.fakeVideoProvider.submit(videoId, params);
   }
 
+  /**
+   * Poll the AI provider for the status of a submitted job.
+   *
+   * In production: replace with actual status check
+   *   e.g. const res = await this.runwayClient.getTask(jobId);
+   *        return { jobId, status: res.status, videoUrl: res.outputUrl };
+   */
   async getGenerationStatus(jobId: string): Promise<GenerateVideoResult> {
-    // Poll the AI provider for status
-    // Replace with actual provider status check
-    this.logger.log(`Polling status for job: ${jobId}`);
-    return { jobId, status: 'completed', videoUrl: undefined };
+    return this.fakeVideoProvider.checkStatus(jobId);
   }
 
   async enhancePrompt(prompt: string): Promise<string> {
-    const completion = await this.openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are an expert at writing cinematic video generation prompts. ' +
-            'Enhance the user prompt to be more descriptive and cinematic without changing the core intent. ' +
-            'Keep the output under 300 words.',
-        },
-        { role: 'user', content: prompt },
-      ],
-      max_tokens: 400,
-    });
-
-    return completion.choices[0]?.message?.content ?? prompt;
+    try {
+      const completion = await this.openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are an expert at writing cinematic video generation prompts. ' +
+              'Enhance the user prompt to be more descriptive and cinematic without changing the core intent. ' +
+              'Keep the output under 300 words.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        max_tokens: 400,
+      });
+      return completion.choices[0]?.message?.content ?? prompt;
+    } catch (error) {
+      // Fallback to original prompt when OpenAI is unavailable (e.g. no API key in dev)
+      this.logger.warn(`enhancePrompt failed, using original: ${(error as Error).message}`);
+      return prompt;
+    }
   }
 }

@@ -55,7 +55,7 @@ export class VideoGenerationProcessor extends WorkerHost {
       });
       await job.updateProgress(20);
 
-      // Submit to AI provider
+      // Submit to AI provider (pass videoId for fake URL generation in simulation mode)
       const generationResult = await this.aiService.generateVideo({
         prompt: enhancedPrompt,
         negativePrompt: video.negativePrompt,
@@ -63,7 +63,7 @@ export class VideoGenerationProcessor extends WorkerHost {
         height: video.height,
         fps: video.fps,
         model: video.model,
-      });
+      }, videoId);
       await this.videosService.updateStatus(videoId, VideoStatus.PROCESSING, {
         metadata: {
           progressPercent: 40,
@@ -99,10 +99,14 @@ export class VideoGenerationProcessor extends WorkerHost {
         await job.updateProgress(progressPercent);
 
         if (result.videoUrl) {
-          const storedUrl = await this.storageService.uploadFromUrl(
-            result.videoUrl,
-            `videos/${videoId}/output.mp4`,
-          );
+          // Skip re-upload if the provider already stored the file (e.g. FakeVideoProvider,
+          // or a real provider that uploads to its own CDN and returns a final URL).
+          const storedUrl = result.alreadyStored
+            ? result.videoUrl
+            : await this.storageService.uploadFromUrl(
+                result.videoUrl,
+                `videos/${videoId}/output.mp4`,
+              );
           await this.videosService.updateStatus(videoId, VideoStatus.COMPLETED, {
             videoUrl: storedUrl,
             thumbnailUrl: result.thumbnailUrl,
