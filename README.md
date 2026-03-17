@@ -301,6 +301,7 @@ THROTTLE_LIMIT=100
 | 2단계 | REST API 설계 및 구현 — 영상 CRUD, 페이지네이션, Swagger 문서화 |
 | 3단계 | BullMQ 잡큐 구현 — Bull → BullMQ 마이그레이션, 재시도 로직, 상태 추적 |
 | 4단계 | AI 워커 서비스 — FakeVideoProvider 시뮬레이터, 진행률 폴링, S3 업로드 파이프라인 |
+| 5단계 | AWS S3 스토리지 통합 — S3Provider 분리, 에러 핸들링, 지수 백오프 재시도 로직 |
 
 ---
 
