@@ -367,6 +367,7 @@ npm run start:worker:dev # Worker (터미널 2)
 | 10단계 | WebSocket 실시간 — Socket.IO Gateway, 도메인 이벤트 → Room push |
 | 11단계 | Dead Letter Queue — 영구 실패 잡 영속화, 수동 재처리 API |
 | 12단계 | 큐 모니터링 — Bull Board UI, Basic Auth 보호 |
+| 13단계 | CI/CD 파이프라인 — GitHub Actions (lint/typecheck/Docker build), OCIR push, OCI Compute SSH 배포 |
 
 ---
 

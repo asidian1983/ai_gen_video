@@ -1,0 +1,131 @@
+name: CD — Build & Deploy to Oracle Cloud
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: cd-production
+  cancel-in-progress: false   # never cancel an in-flight deploy
+
+env:
+  IMAGE_NAME: ai-gen-video
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  build-and-push:
+    name: Build & Push to OCIR
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.OCIR_REGISTRY }}/${{ secrets.OCIR_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest
+
+      - name: Login to OCI Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.OCIR_REGISTRY }}
+          username: ${{ secrets.OCIR_USERNAME }}
+          password: ${{ secrets.OCIR_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to OCI Compute
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: production
+    steps:
+      - name: SSH Deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.OCI_HOST }}
+          username: ${{ secrets.OCI_USER }}
+          key: ${{ secrets.OCI_SSH_KEY }}
+          port: ${{ secrets.OCI_SSH_PORT || 22 }}
+          script: |
+            set -e
+
+            # ── 1. Pull latest image ──────────────────────────────────────────
+            echo "${{ secrets.OCIR_TOKEN }}" | \
+              docker login ${{ secrets.OCIR_REGISTRY }} \
+                -u "${{ secrets.OCIR_USERNAME }}" \
+                --password-stdin
+
+            docker pull ${{ secrets.OCIR_REGISTRY }}/${{ secrets.OCIR_NAMESPACE }}/ai-gen-video:latest
+
+            # ── 2. Write env file ─────────────────────────────────────────────
+            cat > /opt/ai-gen-video/.env << 'ENVEOF'
+            NODE_ENV=production
+            PORT=3000
+            DB_HOST=postgres
+            DB_PORT=5432
+            DB_USERNAME=${{ secrets.DB_USERNAME }}
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            DB_DATABASE=${{ secrets.DB_DATABASE }}
+            DB_SYNCHRONIZE=false
+            REDIS_HOST=redis
+            REDIS_PORT=6379
+            REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            JWT_EXPIRES_IN=7d
+            JWT_REFRESH_SECRET=${{ secrets.JWT_REFRESH_SECRET }}
+            JWT_REFRESH_EXPIRES_IN=30d
+            AWS_REGION=${{ secrets.AWS_REGION }}
+            AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            AWS_S3_BUCKET=${{ secrets.AWS_S3_BUCKET }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            AI_VIDEO_PROVIDER=${{ secrets.AI_VIDEO_PROVIDER }}
+            THROTTLE_TTL=60
+            THROTTLE_LIMIT=100
+            MONITORING_USER=${{ secrets.MONITORING_USER }}
+            MONITORING_PASSWORD=${{ secrets.MONITORING_PASSWORD }}
+            CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}
+            ENVEOF
+
+            # ── 3. Rolling restart (zero-downtime) ────────────────────────────
+            cd /opt/ai-gen-video
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+            # ── 4. Health check ───────────────────────────────────────────────
+            echo "Waiting for health check..."
+            sleep 15
+            curl --fail --silent http://localhost:3000/health | grep -q '"status":"ok"'
+            echo "Health check passed ✓"
+
+            # ── 5. Cleanup old images ─────────────────────────────────────────
+            docker image prune -f
+
+      - name: Notify deployment result
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ Deployment to Oracle Cloud succeeded — sha ${{ github.sha }}"
+          else
+            echo "❌ Deployment failed — check SSH logs above"
+            exit 1
+          fi
