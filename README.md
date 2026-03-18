@@ -303,6 +303,7 @@ THROTTLE_LIMIT=100
 | 4단계 | AI 워커 서비스 — FakeVideoProvider 시뮬레이터, 진행률 폴링, S3 업로드 파이프라인 |
 | 5단계 | AWS S3 스토리지 통합 — S3Provider 분리, 에러 핸들링, 지수 백오프 재시도 로직 |
 | 6단계 | 잡 상태 시스템 — Redis 캐시, Optimistic Locking, State Machine, Idempotency |
+| 7단계 | 컨테이너 아키텍처 — API/Worker 분리 컨테이너, 3단계 멀티스테이지 빌드 최적화 |
 
 ---
 
