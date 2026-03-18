@@ -123,6 +123,9 @@ src/
 | Method | Endpoint | 설명 | 인증 |
 |--------|----------|------|------|
 | GET | `/queue/jobs/:jobId` | BullMQ 잡 상태 조회 | JWT |
+| GET | `/queue/failed-jobs` | DLQ — 영구 실패 잡 목록 (페이지네이션) | JWT |
+| GET | `/queue/failed-jobs/:id` | DLQ — 단건 조회 | JWT |
+| POST | `/queue/failed-jobs/:id/retry` | DLQ — 수동 재처리 (status → PENDING, 재큐) | JWT |
 
 ---
 
@@ -307,6 +310,7 @@ THROTTLE_LIMIT=100
 | 8단계 | MSA 기반 — 서비스 계약 인터페이스, 도메인 이벤트 시스템, 헬스체크 엔드포인트 |
 | 9단계 | Rate Limiting — 3단계 Named Throttler (burst/standard/sustained), 엔드포인트별 정책 |
 | 10단계 | WebSocket 실시간 잡 상태 — Socket.IO Gateway, 도메인 이벤트 → Room push |
+| 11단계 | Dead Letter Queue — 영구 실패 잡 PostgreSQL 영속화, 수동 재처리 API (list/retry) |
 
 ---
 
