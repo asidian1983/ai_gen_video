@@ -305,6 +305,7 @@ THROTTLE_LIMIT=100
 | 6단계 | 잡 상태 시스템 — Redis 캐시, Optimistic Locking, State Machine, Idempotency |
 | 7단계 | 컨테이너 아키텍처 — API/Worker 분리 컨테이너, 3단계 멀티스테이지 빌드 최적화 |
 | 8단계 | MSA 기반 — 서비스 계약 인터페이스, 도메인 이벤트 시스템, 헬스체크 엔드포인트 |
+| 9단계 | Rate Limiting — 3단계 Named Throttler (burst/standard/sustained), 엔드포인트별 정책 |
 
 ---
 

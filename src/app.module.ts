@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { BullMQModule } from '@nestjs/bullmq';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { WinstonModule } from 'nest-winston';
@@ -81,13 +82,28 @@ import { HealthModule } from './modules/health/health.module';
       }),
     }),
 
-    // Rate limiting
+    // Rate limiting — three named tiers applied globally via APP_GUARD.
+    // Endpoints override individual tiers with @Throttle({ tierName: { ttl, limit } }).
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => [
         {
+          // burst: short-window spike protection
+          name: 'burst',
+          ttl: 10_000,
+          limit: 20,
+        },
+        {
+          // standard: per-minute default — tunable via THROTTLE_TTL / THROTTLE_LIMIT env vars
+          name: 'standard',
           ttl: config.get<number>('app.throttleTtl', 60) * 1000,
           limit: config.get<number>('app.throttleLimit', 100),
+        },
+        {
+          // sustained: hourly ceiling for expensive operations
+          name: 'sustained',
+          ttl: 3_600_000,
+          limit: 1_000,
         },
       ],
     }),
@@ -112,6 +128,10 @@ import { HealthModule } from './modules/health/health.module';
     QueueModule,
     StorageModule,
     HealthModule,
+  ],
+  providers: [
+    // Enforce ThrottlerGuard globally — previously configured but never activated
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class AppModule {}

@@ -26,6 +26,7 @@ import { VideoResponseDto } from './dto/video-response.dto';
 import { VideoStatusResponseDto } from './dto/video-status-response.dto';
 import { VideoResultDto } from './dto/video-result.dto';
 import { PaginatedVideosDto } from './dto/paginated-videos.dto';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { User } from '../users/entities/user.entity';
 import { VideoStatus } from './enums/video-status.enum';
@@ -41,6 +42,8 @@ export class VideosController {
    * Submit a new AI video generation job.
    */
   @Post()
+  // Expensive AI operation: max 10 jobs per hour per IP
+  @Throttle({ burst: { ttl: 10_000, limit: 3 }, sustained: { ttl: 3_600_000, limit: 10 } })
   @ApiOperation({
     summary: 'Create a video generation job',
     description:
