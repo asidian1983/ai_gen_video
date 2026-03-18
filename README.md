@@ -311,6 +311,7 @@ THROTTLE_LIMIT=100
 | 9단계 | Rate Limiting — 3단계 Named Throttler (burst/standard/sustained), 엔드포인트별 정책 |
 | 10단계 | WebSocket 실시간 잡 상태 — Socket.IO Gateway, 도메인 이벤트 → Room push |
 | 11단계 | Dead Letter Queue — 영구 실패 잡 PostgreSQL 영속화, 수동 재처리 API (list/retry) |
+| 12단계 | 큐 모니터링 — Bull Board UI (/admin/queues), Basic Auth 보호, BullMQAdapter 연동 |
 
 ---
 
