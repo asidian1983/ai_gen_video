@@ -33,9 +33,15 @@ RUN npm ci --omit=dev && npm cache clean --force
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 3: production
 #   Minimal image — only compiled JS + production node_modules.
-#   Runs as a non-root user for security.
+#   Runs as a non-root user (nestjs:nodejs, UID/GID 1001).
+#   Uses tini as PID 1 to:
+#     - Forward signals (SIGTERM/SIGINT) correctly to the Node process
+#     - Reap zombie child processes
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:20-alpine AS production
+
+# tini: lightweight init process for containers
+RUN apk add --no-cache tini
 
 WORKDIR /app
 
@@ -51,7 +57,17 @@ COPY --from=builder         --chown=nestjs:nodejs /app/package.json ./package.js
 USER nestjs
 
 ENV NODE_ENV=production
+ENV PORT=3000
 
-# Default entrypoint is the API. Override with `command` in docker-compose
-# to run the worker: ["node", "dist/main.worker"]
+EXPOSE 3000
+
+# Docker-native health check for the API container.
+# Worker containers override CMD but not HEALTHCHECK; docker-compose
+# overrides the worker health check via its own healthcheck: block.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget -qO- http://localhost:${PORT}/health || exit 1
+
+# tini as init (PID 1) → node as the main process
+# Override CMD in docker-compose to run the worker: node dist/main.worker
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "dist/main"]
