@@ -372,6 +372,7 @@ npm run start:worker:dev # Worker (터미널 2)
 | 12단계 | 큐 모니터링 — Bull Board UI, Basic Auth 보호 |
 | 13단계 | CI/CD 파이프라인 — GitHub Actions (lint/typecheck/Docker build), OCIR push, OCI Compute SSH 배포 |
 | 14단계 | 프로덕션 Docker 전략 — tini PID 1, HEALTHCHECK, 멀티플랫폼 빌드 (amd64+arm64), Compose 파일 분리 |
+| 15단계 | 컨테이너 보안 및 리소스 제한 — no-new-privileges, 서비스별 메모리/CPU limits, OCI Free Tier 리소스 배분 |
 
 ---
 
