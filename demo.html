@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="ko" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interactive Demo — AI Video Generation Backend</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter','sans-serif'], mono: ['JetBrains Mono','monospace'] },
+        },
+      },
+    };
+  </script>
+  <style>
+    body { background:#0a0a0f; color:#e2e8f0; }
+    .gradient-text { background:linear-gradient(135deg,#818cf8,#a78bfa,#38bdf8); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+    .panel { background:rgba(255,255,255,0.025); border:1px solid rgba(255,255,255,0.06); border-radius:16px; }
+    .code { font-family:'JetBrains Mono',monospace; font-size:12px; }
+    .log-entry { border-left:2px solid transparent; }
+    .log-entry.info  { border-color:#6366f1; background:rgba(99,102,241,0.05); }
+    .log-entry.ws    { border-color:#a78bfa; background:rgba(167,139,250,0.05); }
+    .log-entry.success{ border-color:#10b981; background:rgba(16,185,129,0.05); }
+    .log-entry.error { border-color:#ef4444; background:rgba(239,68,68,0.05); }
+    .log-entry.warn  { border-color:#f59e0b; background:rgba(245,158,11,0.05); }
+    .progress-bar { height:6px; border-radius:3px; background:rgba(255,255,255,0.06); overflow:hidden; }
+    .progress-fill { height:100%; border-radius:3px; background:linear-gradient(90deg,#6366f1,#a78bfa); transition:width 0.8s ease; }
+    .status-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+    .status-PENDING    { background:#6366f1; animation:pulse 2s infinite; }
+    .status-PROCESSING { background:#f59e0b; animation:pulse 1s infinite; }
+    .status-COMPLETED  { background:#10b981; }
+    .status-FAILED     { background:#ef4444; }
+    .status-IDLE       { background:#475569; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .api-method { font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:600; padding:2px 6px; border-radius:4px; }
+    .method-POST   { background:rgba(16,185,129,0.15); color:#10b981; }
+    .method-GET    { background:rgba(56,189,248,0.15); color:#38bdf8; }
+    .method-WS     { background:rgba(167,139,250,0.15); color:#a78bfa; }
+    .method-STATUS { background:rgba(245,158,11,0.15); color:#f59e0b; }
+    textarea:focus, select:focus, input:focus { outline:none; border-color:#6366f1 !important; box-shadow:0 0 0 2px rgba(99,102,241,0.2); }
+    .btn-primary { background:linear-gradient(135deg,#6366f1,#a78bfa); transition:opacity 0.2s; }
+    .btn-primary:hover:not(:disabled) { opacity:0.9; }
+    .btn-primary:disabled { opacity:0.4; cursor:not-allowed; }
+    .video-card { background:linear-gradient(135deg,rgba(99,102,241,0.1),rgba(167,139,250,0.1)); border:1px solid rgba(99,102,241,0.3); border-radius:12px; }
+    ::-webkit-scrollbar { width:4px; height:4px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:#374151; border-radius:2px; }
+    .json-key   { color:#a78bfa; }
+    .json-str   { color:#86efac; }
+    .json-num   { color:#93c5fd; }
+    .json-bool  { color:#f59e0b; }
+    .json-null  { color:#94a3b8; }
+  </style>
+</head>
+<body class="font-sans antialiased min-h-screen">
+
+  <!-- NAV -->
+  <nav class="sticky top-0 z-50 backdrop-blur-md border-b border-white/5" style="background:rgba(10,10,15,0.9)">
+    <div class="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <a href="index.html" class="text-slate-400 hover:text-white transition-colors text-sm flex items-center gap-1">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+          홈
+        </a>
+        <span class="text-white/20">/</span>
+        <span class="text-white text-sm font-semibold">Interactive Demo</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span id="ws-indicator" class="flex items-center gap-2 text-xs text-slate-500">
+          <span class="status-dot status-IDLE"></span>
+          WebSocket
+        </span>
+        <a href="https://github.com/asidian1983/ai_gen_video" target="_blank"
+           class="text-xs text-slate-400 hover:text-white transition-colors px-3 py-1.5 border border-white/10 rounded-lg">
+          GitHub
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- HEADER -->
+  <div class="text-center pt-12 pb-8 px-6">
+    <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-indigo-500/20 bg-indigo-500/10 text-indigo-300 text-xs mb-4">
+      <span class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
+      Simulated Backend — Fake API · No Real Server Required
+    </div>
+    <h1 class="text-3xl md:text-4xl font-black text-white mb-3">
+      AI Video Generation <span class="gradient-text">Live Demo</span>
+    </h1>
+    <p class="text-slate-400 text-sm max-w-xl mx-auto">
+      실제 백엔드 API의 전체 흐름을 브라우저에서 시뮬레이션합니다.
+      BullMQ 잡 큐, WebSocket 실시간 push, DLQ 재처리까지 체험해보세요.
+    </p>
+  </div>
+
+  <!-- MAIN GRID -->
+  <div class="max-w-7xl mx-auto px-4 pb-16 grid lg:grid-cols-3 gap-4">
+
+    <!-- ── LEFT: INPUT ── -->
+    <div class="space-y-4">
+      <!-- Form -->
+      <div class="panel p-5">
+        <h2 class="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+          <svg class="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+          POST /videos — 영상 생성 요청
+        </h2>
+
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs text-slate-400 mb-1.5 block">Prompt <span class="text-red-400">*</span></label>
+            <textarea id="prompt" rows="4" placeholder="A cinematic aerial shot of a futuristic city at sunset, neon lights reflecting on glass towers..."
+              class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-600 resize-none"
+            ></textarea>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-slate-400 mb-1.5 block">Resolution</label>
+              <select id="resolution" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200">
+                <option value="1920x1080">1920×1080 (FHD)</option>
+                <option value="1280x720" selected>1280×720 (HD)</option>
+                <option value="512x512">512×512 (Square)</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400 mb-1.5 block">FPS</label>
+              <select id="fps" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200">
+                <option value="24" selected>24 fps</option>
+                <option value="30">30 fps</option>
+                <option value="60">60 fps</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-400 mb-1.5 block">Duration: <span id="duration-label" class="text-white">5s</span></label>
+            <input id="duration" type="range" min="3" max="15" value="5" class="w-full accent-indigo-500" />
+          </div>
+
+          <!-- Scenario toggles -->
+          <div class="border-t border-white/5 pt-3 space-y-2">
+            <p class="text-xs text-slate-500 mb-2">Simulation Scenario</p>
+            <label class="flex items-center gap-3 cursor-pointer">
+              <div class="relative">
+                <input type="radio" name="scenario" id="sc-success" value="success" checked class="sr-only" />
+                <div class="toggle-radio w-4 h-4 rounded-full border-2 border-indigo-500 flex items-center justify-center">
+                  <div class="w-2 h-2 rounded-full bg-indigo-500 hidden"></div>
+                </div>
+              </div>
+              <span class="text-sm text-slate-300">정상 처리 (COMPLETED)</span>
+            </label>
+            <label class="flex items-center gap-3 cursor-pointer">
+              <div class="relative">
+                <input type="radio" name="scenario" id="sc-retry" value="retry" class="sr-only" />
+                <div class="toggle-radio w-4 h-4 rounded-full border-2 border-slate-600 flex items-center justify-center">
+                  <div class="w-2 h-2 rounded-full bg-amber-500 hidden"></div>
+                </div>
+              </div>
+              <span class="text-sm text-slate-300">2차 재시도 후 성공</span>
+            </label>
+            <label class="flex items-center gap-3 cursor-pointer">
+              <div class="relative">
+                <input type="radio" name="scenario" id="sc-fail" value="fail" class="sr-only" />
+                <div class="toggle-radio w-4 h-4 rounded-full border-2 border-slate-600 flex items-center justify-center">
+                  <div class="w-2 h-2 rounded-full bg-red-500 hidden"></div>
+                </div>
+              </div>
+              <span class="text-sm text-slate-300">영구 실패 → DLQ 저장</span>
+            </label>
+          </div>
+
+          <button id="submit-btn" onclick="startDemo()"
+            class="btn-primary w-full py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            Generate Video
+          </button>
+          <button id="reset-btn" onclick="resetDemo()" class="w-full py-2.5 rounded-xl text-xs font-medium text-slate-400 border border-white/5 hover:border-white/20 hover:text-white transition-all hidden">
+            Reset
+          </button>
+        </div>
+      </div>
+
+      <!-- Rate Limit indicator -->
+      <div class="panel p-4">
+        <h3 class="text-xs font-semibold text-slate-400 mb-3 flex items-center gap-2">
+          <svg class="w-3.5 h-3.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+          3-tier Rate Limiting
+        </h3>
+        <div class="space-y-2.5">
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-500">burst <span class="text-slate-600">(3/10s)</span></span>
+              <span id="burst-count" class="text-slate-300">0/3</span>
+            </div>
+            <div class="progress-bar"><div id="burst-bar" class="progress-fill" style="width:0%;background:linear-gradient(90deg,#6366f1,#a78bfa)"></div></div>
+          </div>
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-500">sustained <span class="text-slate-600">(10/h)</span></span>
+              <span id="sustained-count" class="text-slate-300">0/10</span>
+            </div>
+            <div class="progress-bar"><div id="sustained-bar" class="progress-fill" style="width:0%;background:linear-gradient(90deg,#6366f1,#38bdf8)"></div></div>
+          </div>
+        </div>
+        <p class="text-xs text-slate-600 mt-3">POST /videos — burst: 3/10s, sustained: 10/h</p>
+      </div>
+
+      <!-- DLQ Panel -->
+      <div class="panel p-4" id="dlq-panel">
+        <h3 class="text-xs font-semibold text-slate-400 mb-3 flex items-center gap-2">
+          <svg class="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          Dead Letter Queue
+        </h3>
+        <div id="dlq-list" class="space-y-2 text-xs text-slate-500 italic">
+          영구 실패 잡 없음
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CENTER: LIVE STATUS ── -->
+    <div class="space-y-4">
+      <!-- Job Status -->
+      <div class="panel p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-sm font-semibold text-white">Job Status</h2>
+          <div class="flex items-center gap-2 text-xs">
+            <span id="status-dot" class="status-dot status-IDLE"></span>
+            <span id="status-text" class="text-slate-400">IDLE</span>
+          </div>
+        </div>
+
+        <!-- IDs -->
+        <div class="space-y-2 mb-4">
+          <div class="flex items-center gap-2 text-xs">
+            <span class="text-slate-600 w-20">videoId</span>
+            <span id="video-id" class="code text-slate-400 truncate">—</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs">
+            <span class="text-slate-600 w-20">jobId</span>
+            <span id="job-id" class="code text-slate-400">—</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs">
+            <span class="text-slate-600 w-20">attempt</span>
+            <span id="attempt-text" class="code text-slate-400">—</span>
+          </div>
+        </div>
+
+        <!-- Progress -->
+        <div class="mb-1 flex justify-between text-xs">
+          <span class="text-slate-500" id="progress-msg">대기 중...</span>
+          <span class="text-indigo-400 font-semibold" id="progress-pct">0%</span>
+        </div>
+        <div class="progress-bar mb-5">
+          <div id="progress-fill" class="progress-fill" style="width:0%"></div>
+        </div>
+
+        <!-- Pipeline steps -->
+        <div class="space-y-2" id="pipeline-steps">
+          <div class="step flex items-center gap-2.5 text-xs" data-step="queued">
+            <div class="step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600">1</div>
+            <span class="text-slate-500">큐 등록 (BullMQ)</span>
+          </div>
+          <div class="step flex items-center gap-2.5 text-xs" data-step="processing">
+            <div class="step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600">2</div>
+            <span class="text-slate-500">Worker 처리 시작 (Optimistic Lock)</span>
+          </div>
+          <div class="step flex items-center gap-2.5 text-xs" data-step="prompt">
+            <div class="step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600">3</div>
+            <span class="text-slate-500">GPT-4o Prompt 향상</span>
+          </div>
+          <div class="step flex items-center gap-2.5 text-xs" data-step="ai">
+            <div class="step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600">4</div>
+            <span class="text-slate-500">AI Provider 제출 + 폴링</span>
+          </div>
+          <div class="step flex items-center gap-2.5 text-xs" data-step="upload">
+            <div class="step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600">5</div>
+            <span class="text-slate-500">S3 업로드</span>
+          </div>
+          <div class="step flex items-center gap-2.5 text-xs" data-step="done">
+            <div class="step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600">6</div>
+            <span class="text-slate-500">완료 (Presigned URL 발급)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- WebSocket Event Stream -->
+      <div class="panel p-5">
+        <h2 class="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+          <svg class="w-4 h-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          WebSocket Events
+          <span class="text-xs text-slate-600 font-normal">/video-status namespace</span>
+        </h2>
+        <div id="ws-log" class="space-y-1.5 max-h-52 overflow-y-auto code text-xs">
+          <div class="text-slate-600 italic">이벤트 대기 중...</div>
+        </div>
+      </div>
+
+      <!-- Result -->
+      <div id="result-panel" class="hidden">
+        <div class="video-card p-5">
+          <div class="flex items-center gap-2 mb-3">
+            <svg class="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span class="text-sm font-semibold text-emerald-400">영상 생성 완료!</span>
+          </div>
+          <!-- Fake video thumbnail -->
+          <div class="rounded-xl overflow-hidden mb-3 relative" style="aspect-ratio:16/9;background:linear-gradient(135deg,#0f0c29,#302b63,#24243e)">
+            <div class="absolute inset-0 flex flex-col items-center justify-center gap-2">
+              <div class="w-14 h-14 rounded-full border-2 border-white/20 flex items-center justify-center backdrop-blur-sm" style="background:rgba(255,255,255,0.05)">
+                <svg class="w-7 h-7 text-white ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+              </div>
+              <span class="text-white/60 text-xs" id="result-duration"></span>
+            </div>
+            <div class="absolute bottom-2 right-2 text-xs text-white/40 code" id="result-resolution"></div>
+          </div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-2 text-xs">
+              <span class="text-slate-500">videoUrl</span>
+              <span id="result-url" class="code text-indigo-300 truncate"></span>
+            </div>
+            <div class="flex items-center gap-2 text-xs">
+              <span class="text-slate-500">Presigned URL</span>
+              <span class="code text-emerald-300 truncate">https://ai-gen-video-storage.s3.amazonaws.com/videos/...</span>
+            </div>
+            <div class="flex items-center gap-2 text-xs">
+              <span class="text-slate-500">expires</span>
+              <span class="text-slate-400">24시간</span>
+            </div>
+          </div>
+          <button class="mt-4 w-full py-2.5 rounded-lg text-xs font-semibold text-white border border-emerald-500/30 hover:bg-emerald-500/10 transition-colors">
+            GET /videos/:id/result — Presigned URL 발급 →
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── RIGHT: API LOG ── -->
+    <div class="space-y-4">
+      <div class="panel p-5 h-full">
+        <h2 class="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+          <svg class="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          API Log
+          <button onclick="clearLog()" class="ml-auto text-xs text-slate-600 hover:text-slate-400 transition-colors">clear</button>
+        </h2>
+        <div id="api-log" class="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
+          <div class="text-xs text-slate-600 italic">API 호출 대기 중...</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- EXPLAINER BAR -->
+  <div class="border-t border-white/5 py-8 px-6" style="background:rgba(99,102,241,0.03)">
+    <div class="max-w-5xl mx-auto grid md:grid-cols-3 gap-6 text-center">
+      <div>
+        <div class="text-indigo-400 text-xs font-semibold uppercase tracking-widest mb-2">BullMQ Queue</div>
+        <p class="text-slate-500 text-xs">POST /videos는 즉시 응답 (< 100ms). 실제 처리는 Worker가 비동기로 담당합니다.</p>
+      </div>
+      <div>
+        <div class="text-violet-400 text-xs font-semibold uppercase tracking-widest mb-2">WebSocket Push</div>
+        <p class="text-slate-500 text-xs">클라이언트는 video:&#123;videoId&#125; Room을 구독하고 서버 push를 기다립니다. 폴링 없음.</p>
+      </div>
+      <div>
+        <div class="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-2">Dead Letter Queue</div>
+        <p class="text-slate-500 text-xs">3회 재시도 소진 시 failed_jobs 테이블에 저장. POST /retry로 수동 재처리 가능.</p>
+      </div>
+    </div>
+  </div>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+let running = false;
+let burstCount = 0;
+let sustainedCount = 0;
+let burstTimer = null;
+let dlqItems = [];
+let currentVideoId = null;
+let currentJobId = null;
+
+// ─── Utilities ───────────────────────────────────────────────────────────────
+function uid() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random()*16|0, v = c==='x'?r:r&0x3|0x8;
+    return v.toString(16);
+  });
+}
+
+function jobId() { return String(Math.floor(Math.random()*9000)+1000); }
+
+function timestamp() {
+  return new Date().toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function highlight(json) {
+  return JSON.stringify(json, null, 2)
+    .replace(/"([^"]+)":/g, '<span class="json-key">"$1"</span>:')
+    .replace(/: "([^"]*)"/g, ': <span class="json-str">"$1"</span>')
+    .replace(/: (\d+\.?\d*)/g, ': <span class="json-num">$1</span>')
+    .replace(/: (true|false)/g, ': <span class="json-bool">$1</span>')
+    .replace(/: null/g, ': <span class="json-null">null</span>');
+}
+
+// ─── Radio buttons ────────────────────────────────────────────────────────────
+document.querySelectorAll('input[name="scenario"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    document.querySelectorAll('.toggle-radio div').forEach(d => d.classList.add('hidden'));
+    document.querySelector(`#${radio.id} ~ .toggle-radio div`) ||
+      radio.parentElement.querySelector('.toggle-radio div').classList.remove('hidden');
+    // simpler: just update all
+    document.querySelectorAll('input[name="scenario"]').forEach(r => {
+      const dot = r.closest('label').querySelector('.toggle-radio div');
+      const ring = r.closest('label').querySelector('.toggle-radio');
+      if (r.checked) { dot.classList.remove('hidden'); ring.style.borderColor = dot.classList.contains('bg-indigo-500')?'#6366f1':dot.classList.contains('bg-amber-500')?'#f59e0b':'#ef4444'; }
+      else { dot.classList.add('hidden'); ring.style.borderColor=''; }
+    });
+  });
+});
+
+// Init radio display
+document.querySelector('#sc-success').closest('label').querySelector('.toggle-radio div').classList.remove('hidden');
+
+// Duration label
+document.getElementById('duration').addEventListener('input', e => {
+  document.getElementById('duration-label').textContent = e.target.value + 's';
+});
+
+// ─── Log helpers ──────────────────────────────────────────────────────────────
+function addApiLog(method, path, statusCode, requestBody, responseBody, ms) {
+  const log = document.getElementById('api-log');
+  if (log.querySelector('.italic')) log.innerHTML = '';
+  const statusColor = statusCode >= 400 ? 'text-red-400' : statusCode >= 200 ? 'text-emerald-400' : 'text-slate-400';
+  const methodClass = `method-${method}`;
+  const el = document.createElement('div');
+  el.className = 'log-entry info rounded-lg p-3 space-y-2';
+  el.innerHTML = `
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="api-method ${methodClass}">${method}</span>
+      <span class="code text-slate-300 text-xs">${path}</span>
+      <span class="ml-auto ${statusColor} code text-xs">${statusCode}</span>
+      <span class="text-slate-600 code text-xs">${ms}ms</span>
+    </div>
+    ${requestBody ? `<details class="text-xs"><summary class="text-slate-500 cursor-pointer hover:text-slate-300">Request</summary><pre class="code mt-1 p-2 rounded" style="background:rgba(0,0,0,0.3);overflow-x:auto">${highlight(requestBody)}</pre></details>` : ''}
+    ${responseBody ? `<details class="text-xs"><summary class="text-slate-500 cursor-pointer hover:text-slate-300">Response</summary><pre class="code mt-1 p-2 rounded" style="background:rgba(0,0,0,0.3);overflow-x:auto">${highlight(responseBody)}</pre></details>` : ''}
+  `;
+  log.appendChild(el);
+  el.scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+
+function addWsLog(event, payload, type='ws') {
+  const log = document.getElementById('ws-log');
+  if (log.querySelector('.italic')) log.innerHTML = '';
+  const el = document.createElement('div');
+  el.className = `log-entry ${type} rounded px-2.5 py-1.5`;
+  el.innerHTML = `<span class="text-slate-500">${timestamp()}</span> <span class="text-violet-300">↓</span> <span class="text-violet-200 font-medium">${event}</span> <span class="text-slate-400">${JSON.stringify(payload)}</span>`;
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+}
+
+function addWsOutLog(event, payload) {
+  const log = document.getElementById('ws-log');
+  if (log.querySelector('.italic')) log.innerHTML = '';
+  const el = document.createElement('div');
+  el.className = 'log-entry info rounded px-2.5 py-1.5';
+  el.innerHTML = `<span class="text-slate-500">${timestamp()}</span> <span class="text-indigo-300">↑</span> <span class="text-indigo-200 font-medium">${event}</span> <span class="text-slate-400">${JSON.stringify(payload)}</span>`;
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+}
+
+// ─── Status helpers ───────────────────────────────────────────────────────────
+function setStatus(status, text) {
+  document.getElementById('status-dot').className = `status-dot status-${status}`;
+  document.getElementById('status-text').textContent = text || status;
+}
+
+function setProgress(pct, msg) {
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-pct').textContent = pct + '%';
+  document.getElementById('progress-msg').textContent = msg;
+}
+
+function activateStep(step) {
+  document.querySelector(`[data-step="${step}"]`).querySelector('.step-icon').className =
+    'step-icon w-5 h-5 rounded-full border border-indigo-500 bg-indigo-500/20 flex items-center justify-center flex-shrink-0 text-indigo-300';
+}
+
+function completeStep(step) {
+  const icon = document.querySelector(`[data-step="${step}"]`).querySelector('.step-icon');
+  icon.className = 'step-icon w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500 flex items-center justify-center flex-shrink-0 text-emerald-400';
+  icon.innerHTML = '<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>';
+}
+
+function failStep(step) {
+  const icon = document.querySelector(`[data-step="${step}"]`).querySelector('.step-icon');
+  icon.className = 'step-icon w-5 h-5 rounded-full bg-red-500/20 border border-red-500 flex items-center justify-center flex-shrink-0 text-red-400';
+  icon.innerHTML = '<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>';
+}
+
+function wsIndicator(connected) {
+  const el = document.getElementById('ws-indicator');
+  el.innerHTML = `<span class="status-dot ${connected ? 'status-PROCESSING' : 'status-IDLE'}"></span> WebSocket ${connected ? 'Connected' : 'Disconnected'}`;
+}
+
+function updateRateLimit() {
+  sustainedCount++;
+  burstCount++;
+  document.getElementById('burst-count').textContent = `${Math.min(burstCount,3)}/3`;
+  document.getElementById('sustained-count').textContent = `${Math.min(sustainedCount,10)}/10`;
+  document.getElementById('burst-bar').style.width = Math.min(burstCount/3*100,100)+'%';
+  document.getElementById('sustained-bar').style.width = Math.min(sustainedCount/10*100,100)+'%';
+  if (burstTimer) clearTimeout(burstTimer);
+  burstTimer = setTimeout(() => {
+    burstCount = 0;
+    document.getElementById('burst-count').textContent = '0/3';
+    document.getElementById('burst-bar').style.width = '0%';
+  }, 10000);
+}
+
+function clearLog() {
+  document.getElementById('api-log').innerHTML = '<div class="text-xs text-slate-600 italic">API 호출 대기 중...</div>';
+}
+
+// ─── Demo orchestration ───────────────────────────────────────────────────────
+async function startDemo() {
+  if (running) return;
+
+  const prompt = document.getElementById('prompt').value.trim();
+  if (!prompt) {
+    document.getElementById('prompt').focus();
+    document.getElementById('prompt').style.borderColor = '#ef4444';
+    setTimeout(() => document.getElementById('prompt').style.borderColor = '', 1500);
+    return;
+  }
+
+  if (burstCount >= 3) {
+    addApiLog('POST', '/api/v1/videos', 429, null, { statusCode:429, message:'ThrottlerException: Too Many Requests', tier:'burst' }, 3);
+    return;
+  }
+  if (sustainedCount >= 10) {
+    addApiLog('POST', '/api/v1/videos', 429, null, { statusCode:429, message:'ThrottlerException: Too Many Requests', tier:'sustained' }, 3);
+    return;
+  }
+
+  running = true;
+  updateRateLimit();
+  document.getElementById('submit-btn').disabled = true;
+  document.getElementById('reset-btn').classList.remove('hidden');
+
+  const scenario = document.querySelector('input[name="scenario"]:checked').value;
+  const res = document.getElementById('resolution').value.split('x');
+  const [width, height] = [parseInt(res[0]), parseInt(res[1])];
+  const fps = parseInt(document.getElementById('fps').value);
+  const duration = parseInt(document.getElementById('duration').value);
+
+  currentVideoId = uid();
+  currentJobId = jobId();
+
+  document.getElementById('video-id').textContent = currentVideoId;
+  document.getElementById('job-id').textContent = '#' + currentJobId;
+  document.getElementById('attempt-text').textContent = '1/3';
+  document.getElementById('result-panel').classList.add('hidden');
+
+  // Reset steps
+  document.querySelectorAll('.step-icon').forEach((el, i) => {
+    el.className = 'step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600';
+    el.textContent = i+1;
+  });
+
+  // ① POST /videos
+  await sleep(200);
+  const reqBody = { title:'AI Generated Video', prompt, width, height, fps, durationSeconds:duration };
+  const resBody = { id:currentVideoId, title:'AI Generated Video', status:'PENDING', queueJobId:currentJobId, createdAt:new Date().toISOString() };
+  addApiLog('POST', '/api/v1/videos', 201, reqBody, resBody, 87);
+  activateStep('queued');
+  setStatus('PENDING', 'PENDING');
+  setProgress(0, '큐 등록 완료...');
+
+  // ② WS connect + subscribe
+  await sleep(300);
+  wsIndicator(true);
+  addWsLog('connect', { namespace:'/video-status', socketId:'sId-'+Math.random().toString(36).slice(2,8) }, 'info');
+  addWsOutLog('subscribe', { videoId: currentVideoId });
+  addWsLog('subscribed', { videoId: currentVideoId }, 'info');
+  addApiLog('WS', '/video-status', 101, null, { event:'subscribe', data:{ videoId:currentVideoId } }, 12);
+
+  // ③ video.created
+  await sleep(400);
+  completeStep('queued');
+  addWsLog('video.created', { videoId:currentVideoId, queueJobId:currentJobId }, 'ws');
+
+  if (scenario === 'retry') {
+    // First attempt fails
+    await sleep(800);
+    activateStep('processing');
+    setStatus('PROCESSING', 'PROCESSING (attempt 1)');
+    addWsLog('video.processing.started', { videoId:currentVideoId, attempt:1 }, 'ws');
+    setProgress(10, 'Starting generation...');
+
+    await sleep(1200);
+    setProgress(20, 'Prompt enhanced...');
+    addApiLog('GET', `/api/v1/queue/jobs/${currentJobId}`, 200, null, { jobId:currentJobId, state:'active', progress:20, attemptsMade:0, maxAttempts:3 }, 45);
+
+    await sleep(800);
+    failStep('processing');
+    setStatus('FAILED', 'ATTEMPT 1 FAILED');
+    setProgress(20, 'AI Provider timeout — 재시도 대기...');
+    addWsLog('video.failed', { videoId:currentVideoId, errorMessage:'AI Provider timeout', attemptsMade:1 }, 'error');
+    addApiLog('STATUS', '5s backoff', null, null, { retryIn:'5000ms', nextAttempt:2 }, 0);
+
+    await sleep(2000); // compressed backoff
+
+    // Second attempt succeeds
+    const newJobId = jobId();
+    currentJobId = newJobId;
+    document.getElementById('job-id').textContent = '#' + newJobId;
+    document.getElementById('attempt-text').textContent = '2/3';
+    document.querySelectorAll('.step-icon').forEach((el, i) => {
+      el.className = 'step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600';
+      el.textContent = i+1;
+    });
+    activateStep('processing');
+    setStatus('PROCESSING', 'PROCESSING (attempt 2)');
+    addWsLog('video.processing.started', { videoId:currentVideoId, attempt:2 }, 'ws');
+    setProgress(10, 'Starting generation (attempt 2)...');
+    await runSuccess(width, height, fps, duration, currentVideoId, newJobId);
+
+  } else if (scenario === 'fail') {
+    // All 3 attempts fail
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      document.getElementById('attempt-text').textContent = `${attempt}/3`;
+      activateStep('processing');
+      setStatus('PROCESSING', `PROCESSING (attempt ${attempt})`);
+      addWsLog('video.processing.started', { videoId:currentVideoId, attempt }, 'ws');
+      setProgress(10 + (attempt-1)*2, `Starting (attempt ${attempt})...`);
+      const delay = attempt === 1 ? 800 : attempt === 2 ? 1200 : 1000;
+      await sleep(delay);
+      failStep('processing');
+      const errMsg = ['AI Provider connection refused','AI Provider timeout','Maximum retry exceeded'][attempt-1];
+      addWsLog('video.failed', { videoId:currentVideoId, errorMessage:errMsg, attemptsMade:attempt }, 'error');
+      setStatus('FAILED', `FAILED (attempt ${attempt})`);
+      setProgress(10, `${errMsg}`);
+      if (attempt < 3) {
+        const backoff = [5, 25][attempt-1];
+        addApiLog('STATUS', `${backoff}s backoff`, null, null, { nextAttempt: attempt+1, backoffMs: backoff*1000 }, 0);
+        await sleep(1500);
+        document.querySelectorAll('.step-icon').forEach((el, i) => {
+          el.className = 'step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600';
+          el.textContent = i+1;
+        });
+      }
+    }
+    // DLQ
+    await sleep(400);
+    const dlqId = uid();
+    const dlqRecord = { id:dlqId, videoId:currentVideoId, queueJobId:currentJobId, errorMessage:'Maximum retry exceeded', attemptsMade:3, retried:false, failedAt:new Date().toISOString() };
+    addApiLog('STATUS', 'DLQ INSERT → failed_jobs', null, null, dlqRecord, 12);
+    setStatus('FAILED', 'FAILED — DLQ 저장됨');
+    setProgress(0, '모든 재시도 소진 — DLQ에 저장됨');
+
+    dlqItems.push({ ...dlqRecord, _dlqId: dlqId });
+    renderDlq();
+    wsIndicator(false);
+
+  } else {
+    // Normal success
+    await runSuccess(width, height, fps, duration, currentVideoId, currentJobId);
+  }
+}
+
+async function runSuccess(width, height, fps, duration, videoId, jobId_) {
+  activateStep('processing');
+  setStatus('PROCESSING', 'PROCESSING');
+  setProgress(10, 'Starting generation...');
+  await sleep(600);
+
+  activateStep('prompt');
+  setProgress(20, 'Prompt enhanced by GPT-4o...');
+  addApiLog('STATUS', 'GPT-4o prompt enhancement', null,
+    { originalPrompt: document.getElementById('prompt').value.trim().slice(0,40)+'...' },
+    { enhancedPrompt: 'A breathtaking cinematic aerial shot of a sprawling futuristic metropolis at golden hour, ultra-detailed neon holographic advertisements reflecting on pristine glass towers, volumetric god rays piercing through clouds, 8K hyperrealistic rendering...' }, 1240);
+  completeStep('processing');
+  await sleep(700);
+
+  completeStep('prompt');
+  activateStep('ai');
+  setProgress(40, 'Submitted to AI Provider...');
+  const aiJobId = 'ai-' + Math.random().toString(36).slice(2,10);
+  addWsLog('video.progress.updated', { videoId, percent:40, message:'Job submitted to AI provider' }, 'ws');
+  await sleep(500);
+
+  for (let poll = 1; poll <= 3; poll++) {
+    const pct = 40 + poll * 15;
+    await sleep(900);
+    setProgress(pct, `Rendering... (poll ${poll}/3)`);
+    addWsLog('video.progress.updated', { videoId, percent:pct, message:`Rendering... poll ${poll}` }, 'ws');
+    addApiLog('GET', `/api/v1/videos/${videoId}`, 200, null,
+      { id:videoId, status:'PROCESSING', metadata:{ progressPercent:pct, estimatedSecondsRemaining: (3-poll)*10 } }, 32);
+  }
+
+  // S3 upload
+  completeStep('ai');
+  activateStep('upload');
+  setProgress(95, 'Uploading to S3...');
+  addWsLog('video.progress.updated', { videoId, percent:95, message:'Uploading to S3...' }, 'ws');
+  await sleep(700);
+
+  // Complete
+  completeStep('upload');
+  activateStep('done');
+  const videoUrl = `https://ai-gen-video-storage.s3.amazonaws.com/videos/${videoId}/output.mp4`;
+  setProgress(100, '완료!');
+  setStatus('COMPLETED', 'COMPLETED');
+  addWsLog('video.completed', { videoId, videoUrl, thumbnailUrl: null }, 'success');
+  completeStep('done');
+
+  addApiLog('GET', `/api/v1/videos/${videoId}`, 200, null,
+    { id:videoId, status:'COMPLETED', videoUrl, metadata:{ progressPercent:100 }, updatedAt:new Date().toISOString() }, 28);
+
+  const presignedUrl = `https://ai-gen-video-storage.s3.amazonaws.com/videos/${videoId}/output.mp4?X-Amz-Expires=86400&X-Amz-Signature=...`;
+  addApiLog('GET', `/api/v1/videos/${videoId}/result`, 200, null,
+    { videoUrl: presignedUrl, expiresIn:86400, expiresAt: new Date(Date.now()+86400000).toISOString() }, 156);
+
+  // Show result panel
+  document.getElementById('result-url').textContent = videoUrl.slice(0,50)+'...';
+  document.getElementById('result-duration').textContent = duration + 's · ' + fps + 'fps';
+  document.getElementById('result-resolution').textContent = width+'×'+height;
+  document.getElementById('result-panel').classList.remove('hidden');
+  wsIndicator(false);
+}
+
+function renderDlq() {
+  const list = document.getElementById('dlq-list');
+  if (dlqItems.length === 0) {
+    list.innerHTML = '<div class="text-xs text-slate-600 italic">영구 실패 잡 없음</div>';
+    return;
+  }
+  list.innerHTML = dlqItems.map(item => `
+    <div class="p-3 rounded-lg border border-red-500/20 bg-red-500/5 space-y-2">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-red-400 flex-shrink-0"></span>
+        <span class="code text-red-300 truncate text-xs">${item.videoId.slice(0,16)}...</span>
+      </div>
+      <div class="text-xs text-slate-500">${item.errorMessage}</div>
+      <div class="text-xs text-slate-600">시도: ${item.attemptsMade}회 · ${item.retried ? '<span class="text-amber-400">재처리됨</span>' : '미처리'}</div>
+      ${!item.retried ? `<button onclick="retryDlq('${item._dlqId}')" class="w-full py-1.5 rounded text-xs font-medium border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors">
+        POST /queue/failed-jobs/:id/retry →
+      </button>` : `<div class="text-xs text-slate-600">retryJobId: #${item.retryJobId}</div>`}
+    </div>
+  `).join('');
+}
+
+function retryDlq(dlqId) {
+  const item = dlqItems.find(i => i._dlqId === dlqId);
+  if (!item || item.retried) return;
+  const newJob = jobId();
+  item.retried = true;
+  item.retriedAt = new Date().toISOString();
+  item.retryJobId = newJob;
+  addApiLog('POST', `/api/v1/queue/failed-jobs/${dlqId}/retry`, 201, null,
+    { id:dlqId, videoId:item.videoId, retryJobId:newJob, message:'Video status reset to PENDING, new job enqueued' }, 203);
+  addApiLog('STATUS', 'video.status → PENDING + BullMQ enqueue', null, null, { videoId:item.videoId, newQueueJobId:newJob }, 12);
+  renderDlq();
+}
+
+function resetDemo() {
+  running = false;
+  document.getElementById('submit-btn').disabled = false;
+  document.getElementById('reset-btn').classList.add('hidden');
+  document.getElementById('video-id').textContent = '—';
+  document.getElementById('job-id').textContent = '—';
+  document.getElementById('attempt-text').textContent = '—';
+  setStatus('IDLE', 'IDLE');
+  setProgress(0, '대기 중...');
+  document.querySelectorAll('.step-icon').forEach((el, i) => {
+    el.className = 'step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600';
+    el.textContent = i+1;
+  });
+  document.getElementById('result-panel').classList.add('hidden');
+  document.getElementById('ws-log').innerHTML = '<div class="text-slate-600 italic">이벤트 대기 중...</div>';
+  wsIndicator(false);
+}
+</script>
+</body>
+</html>
