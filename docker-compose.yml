@@ -1,12 +1,29 @@
 version: '3.8'
 
+# ─────────────────────────────────────────────────────────────────────────────
+# AI Video Generation Platform — Docker Compose
+#
+# Services:
+#   api      — NestJS HTTP server  (port 3000)
+#   worker   — BullMQ job processor (no HTTP port)
+#   postgres — PostgreSQL 16
+#   redis    — Redis 7 (queue + status cache)
+#
+# Both `api` and `worker` use the same Docker image built from Dockerfile.
+# The `api` service triggers the build and tags it; `worker` reuses the tag.
+# ─────────────────────────────────────────────────────────────────────────────
+
 services:
-  app:
+
+  # ── API ────────────────────────────────────────────────────────────────────
+  api:
     build:
       context: .
       dockerfile: Dockerfile
       target: production
+    image: ai-gen-video:latest          # worker will reuse this tag
     container_name: ai-gen-video-api
+    command: ["node", "dist/main"]
     restart: unless-stopped
     ports:
       - '${PORT:-3000}:3000'
@@ -21,9 +38,43 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/health || exit 1']
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     networks:
       - ai-gen-video-network
 
+  # ── Worker ─────────────────────────────────────────────────────────────────
+  worker:
+    image: ai-gen-video:latest          # same image as api, different command
+    container_name: ai-gen-video-worker
+    command: ["node", "dist/main.worker"]
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # No HTTP — check that the Node process (PID 1) is alive
+      test: ['CMD-SHELL', 'kill -0 1 2>/dev/null || exit 1']
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    networks:
+      - ai-gen-video-network
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: ai-gen-video-db
@@ -44,13 +95,20 @@ services:
     networks:
       - ai-gen-video-network
 
+  # ── Redis ──────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: ai-gen-video-redis
     restart: unless-stopped
     ports:
       - '${REDIS_PORT:-6379}:6379'
-    command: redis-server --requirepass ${REDIS_PASSWORD:-}
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save 60 1
+      --appendonly yes
     volumes:
       - redis_data:/data
     healthcheck:
