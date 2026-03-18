@@ -1,0 +1,30 @@
+# Local development overrides — auto-loaded by `docker compose up`.
+# Replaces the pre-built image with a local source build and enables
+# hot-reload for both API and Worker.
+#
+# Production NEVER uses this file. The CD pipeline uses docker-compose.prod.yml.
+
+services:
+  api:
+    build:
+      context: .
+      target: builder        # stop at builder stage — has devDeps + src
+    command: npm run start:dev
+    volumes:
+      - .:/app               # mount source for hot-reload
+      - /app/node_modules    # anonymous volume — prevents host node_modules from overwriting
+      - /app/dist            # keep dist isolated from host
+    environment:
+      NODE_ENV: development
+
+  worker:
+    build:
+      context: .
+      target: builder
+    command: npm run start:worker:dev
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/dist
+    environment:
+      NODE_ENV: development
