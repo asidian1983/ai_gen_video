@@ -1,6 +1,6 @@
 # AI Video Generation Backend Platform
 
-> **프로덕션 수준의 NestJS 백엔드** — AI 기반 영상 생성 플랫폼을 실제 서비스처럼 설계·구현한 풀스택 백엔드 프로젝트
+> **프로덕션 수준의 NestJS 백엔드** — AI 기반 영상 생성 서비스의 백엔드 인프라 전체를 직접 설계·구현한 포트폴리오 프로젝트
 
 [![NestJS](https://img.shields.io/badge/NestJS-10-E0234E?style=flat-square&logo=nestjs)](https://nestjs.com)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
@@ -13,176 +13,191 @@
 
 ---
 
-## 프로젝트 소개
+## 무엇을 구현했는가
 
-영상 생성 AI 모델을 프로덕션 환경에서 운영할 때 필요한 **백엔드 인프라 전체**를 직접 설계·구현한 포트폴리오 프로젝트입니다.
+**18개 REST 엔드포인트 · 12개 NestJS 모듈 · 4개 Docker 서비스 · 3개 DB 테이블**
 
-단순 CRUD를 넘어, 실제 서비스에서 발생하는 문제들을 해결합니다:
+단순 CRUD가 아닌, **실제 AI SaaS 백엔드에서 반드시 해결해야 하는 문제**들을 직접 구현했습니다:
 
-| 문제 | 해결 방법 |
-|------|---------|
-| AI 생성은 수십 초~수 분 소요 | BullMQ 비동기 잡 큐 + 진행률 폴링 |
-| 동시 요청으로 인한 Race Condition | Optimistic Locking (`UPDATE WHERE status = :expected`) |
-| 클라이언트의 반복 폴링 부하 | Socket.IO WebSocket push 실시간 알림 |
-| 최종 실패 잡의 유실 | Dead Letter Queue — PostgreSQL 영구 저장 |
-| 무제한 API 호출 남용 | 3-tier Named Throttler (burst/standard/sustained) |
-| 단일 장애점 (monolith) | API / Worker 컨테이너 분리, MSA 도메인 이벤트 |
+| 실제 발생하는 문제 | 구현한 해결책 | 핵심 기술 |
+|----------------|------------|---------|
+| AI 생성 작업이 수십 초~수 분 소요 | 비동기 Job Queue + 진행률 실시간 push | BullMQ + Socket.IO |
+| 동시 Worker가 같은 잡을 처리하는 Race Condition | DB 레벨 Optimistic Locking | `UPDATE WHERE status = :expected` |
+| 폴링으로 인한 서버·클라이언트 부하 | WebSocket Room 기반 실시간 push | EventEmitter2 → Socket.IO |
+| 모든 재시도 소진 후 잡 유실 | Dead Letter Queue — PostgreSQL 영구 저장 | 도메인 이벤트 + TypeORM |
+| API 남용 및 Brute-force 공격 | 엔드포인트별 3-tier Rate Limiting | @nestjs/throttler Named Throttler |
+| 단일 장애점 (AI 처리 블로킹) | API / Worker 컨테이너 완전 분리 | Docker + MSA 도메인 이벤트 |
+| 큐 상태 블랙박스 문제 | 실시간 큐 시각화 대시보드 | Bull Board |
 
 ---
 
 ## 시스템 아키텍처
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  Client                                                          │
-│    ├─ REST API   →  NestJS API Container                         │
-│    └─ WebSocket  →  Socket.IO Gateway (/video-status)            │
-└─────────────────┬───────────────────────────────────────────────┘
-                  │
-         ┌────────▼────────┐
-         │   API Container  │  JWT 인증 · DTO 검증 · Rate Limiting
-         │  (NestJS + HTTP) │  Swagger · Helmet · CORS
-         └────────┬────────┘
-                  │ BullMQ enqueue
-         ┌────────▼────────┐
-         │  Redis (Queue)   │  Job Queue Transport
-         │  + Cache (TTL)   │  Status Cache-aside (5분 TTL)
-         └────────┬────────┘
-                  │ dequeue
-         ┌────────▼────────┐
-         │ Worker Container │  VideoGenerationProcessor
-         │  (Headless NestJS│  GPT-4o Prompt 향상
-         │   + BullMQ)      │  AI Provider 호출 (Fake / OpenAI)
-         └────────┬────────┘  진행률 폴링 (10초 간격, 최대 30회)
-                  │
-         ┌────────▼────────┐
-         │  AWS S3 / MinIO  │  영상 업로드 · Presigned URL
-         └─────────────────┘
-                  │ EventEmitter2 domain events
-         ┌────────▼────────┐
-         │  PostgreSQL      │  Video · User · FailedJob 영속화
-         └─────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  Client                                                           │
+│    ├─ HTTP  →  REST API  (JWT 인증 · Rate Limiting · Swagger)     │
+│    └─ WS    →  Socket.IO Gateway  (/video-status namespace)       │
+└──────────────────┬───────────────────────────────────────────────┘
+                   │
+          ┌────────▼────────┐
+          │   API Container  │  NestJS + Express
+          │                  │  Helmet · CORS · ThrottlerGuard
+          └────────┬─────────┘
+                   │  BullMQ.add(job)
+          ┌────────▼─────────┐
+          │  Redis 7          │  Job Queue Transport
+          │                   │  Status Cache-aside (TTL 5분)
+          └────────┬──────────┘
+                   │  Worker.process(job)
+          ┌────────▼─────────┐
+          │ Worker Container  │  Headless NestJS (HTTP 없음)
+          │                   │  GPT-4o Prompt 향상
+          │                   │  AI Provider 호출 + 폴링
+          └────┬──────────────┘
+               │                  EventEmitter2
+    ┌──────────┼──────────┐  ─────────────────────────────
+    ▼          ▼          ▼       도메인 이벤트 팬아웃
+  AWS S3    PostgreSQL  Socket.IO  (코드 변경 없이 Kafka로 교체 가능)
+ (영상 저장)  (상태 영속화) (클라이언트 push)
 ```
 
-**컨테이너 구성** — 동일 Docker 이미지, 진입점만 분리
-
-```
+**One Image, Two Services 패턴**
+```bash
 ai-gen-video:latest
-  ├─ node dist/main        → API 서버 (HTTP + WebSocket)
-  └─ node dist/main.worker → 헤드리스 Worker (HTTP 없음)
+  ├─ CMD node dist/main        # API + WebSocket
+  └─ CMD node dist/main.worker # Worker (독립 스케일링)
 ```
+
+---
+
+## 핵심 설계 결정 (Why)
+
+### BullMQ를 선택한 이유
+
+> Redis Streams 기반의 BullMQ는 기존 Bull 대비 TypeScript 완전 지원, Job Groups, Rate Limiter가 내장되어 있고, 실패 잡 보관(`removeOnFail: { count: 500 }`)으로 DLQ 구현 전에도 디버깅 가능합니다.
+
+### Optimistic Locking을 선택한 이유
+
+> Pessimistic Lock(SELECT FOR UPDATE)은 트랜잭션 유지 중 네트워크 지연 시 전체 Worker가 블로킹됩니다. BullMQ의 at-least-once 보장 특성상 동일 잡이 두 Worker에 전달될 수 있는데, Optimistic Lock은 "시도 → 실패 감지 → 조용히 포기" 패턴으로 불필요한 대기 없이 처리합니다.
+
+```sql
+-- 단 한 줄로 Race Condition을 원천 차단
+UPDATE videos SET status='processing' WHERE id=:id AND status='pending'
+-- affected = 0 이면 다른 Worker가 이미 처리 중 → 즉시 종료
+```
+
+### EventEmitter2 도메인 이벤트를 선택한 이유
+
+> Processor, WebSocket Gateway, DLQ가 서로를 직접 의존하면 기능 추가 시마다 Processor를 수정해야 합니다. 도메인 이벤트로 완전히 분리하면 새 소비자(예: Slack 알림 서비스)를 Processor 코드 변경 없이 추가할 수 있습니다. 또한 in-process EventEmitter2 → Redis Pub/Sub → Kafka로의 마이그레이션이 이벤트 계약(타입)만 유지하면 가능합니다.
 
 ---
 
 ## 핵심 기술 구현
 
-### 1. Optimistic Locking으로 Race Condition 제거
-
-BullMQ가 동일 잡을 두 Worker에 동시 전달하는 엣지케이스를 DB 레벨에서 차단:
-
-```sql
-UPDATE videos
-SET status = 'processing', metadata = :meta
-WHERE id = :videoId AND status = :expectedStatus
-```
-
-`affected === 0`이면 다른 Worker가 이미 처리 중 → 현재 Worker는 즉시 종료.
-상태 전이 규칙은 서비스 레이어 State Machine으로 명시:
+### 1. Race Condition 제거 — Optimistic Locking + State Machine
 
 ```
+상태 전이 규칙 (서비스 레이어 강제)
 PENDING → PROCESSING → COMPLETED
                     └→ FAILED
 PENDING → FAILED
 ```
 
-### 2. 도메인 이벤트 기반 MSA 준비 아키텍처
+`JobStatusService.transitionStatus()`: `UPDATE WHERE status = :expected` — `affected === 0`이면 다른 Worker가 선점 → 현재 Worker 즉시 종료
 
-Processor, Gateway, DLQ는 서로 직접 의존하지 않습니다:
-
-```
-VideoGenerationProcessor
-  └─ eventEmitter.emit('video.progress.updated', event)
-                          │
-              ┌───────────┼───────────┐
-              ▼           ▼           ▼
-       VideoGateway   DlqService   (미래: Kafka Consumer)
-    (Socket.IO push) (DB 저장)
-```
-
-`EventEmitter2` → Redis Pub/Sub → Kafka 순으로 **코드 변경 없이** 마이그레이션 가능한 계약 구조.
-
-### 3. 실시간 진행률 — WebSocket Room 격리
+### 2. 실시간 진행률 — 제로 폴링 WebSocket
 
 ```javascript
-// Client
+// 클라이언트 구현 예시
 const socket = io('http://localhost:3000/video-status');
-socket.emit('subscribe', { videoId: 'uuid' });
+socket.emit('subscribe', { videoId: 'uuid-here' });
 
 socket.on('video.progress.updated', ({ percent, message }) => {
-  progressBar.update(percent); // 폴링 없이 실시간 업데이트
+  progressBar.update(percent); // DB 조회 없이 실시간 수신
+});
+
+socket.on('video.completed', ({ videoId, videoUrl }) => {
+  socket.emit('unsubscribe', { videoId });
+  playVideo(videoUrl);
 });
 ```
 
-`video:{videoId}` Room 단위 격리로 다른 사용자 이벤트 크로스 없음.
+`video:{videoId}` Room 격리 → 다른 사용자의 이벤트 크로스 불가.
 
-### 4. 3-tier Rate Limiting
-
-```
-burst     — 20 req / 10s    → 순간 스파이크 방어
-standard  — 100 req / 60s   → 일반 트래픽 (env 조정 가능)
-sustained — 1,000 req / 1h  → 장기 남용 차단
-```
-
-엔드포인트별 개별 정책 오버라이드 (`@Throttle` 데코레이터):
-- `POST /videos` — burst 3/10s + sustained 10/h (AI 작업 비용 반영)
-- `POST /auth/login` — burst 5/60s + standard 10/15min (Brute-force 방어)
-
-### 5. Dead Letter Queue
-
-모든 재시도(최대 3회) 소진 후 영구 실패 잡을 PostgreSQL에 저장:
+### 3. 3-tier Rate Limiting
 
 ```
-BullMQ (3회 실패)
-  → VIDEO_EVENTS.FAILED 도메인 이벤트
-    → DlqService.onVideoFailed()
-      → failed_jobs INSERT (errorMessage, jobData, attemptsMade)
-
-POST /queue/failed-jobs/:id/retry
-  → video.status = PENDING 리셋
-  → 새 BullMQ 잡 등록
-  → 409 Conflict (중복 재처리 방지)
+Tier       Window   Limit   목적
+─────────────────────────────────────────
+burst      10s      20      순간 스파이크 방어
+standard   60s      100     일반 트래픽 (env 조정)
+sustained  1h       1,000   장기 남용 차단
 ```
+
+엔드포인트별 오버라이드 — `POST /videos`는 AI 작업 비용을 반영해 sustained 10/h로 제한.
+
+### 4. Dead Letter Queue — 데이터 유실 없는 장애 복구
+
+```
+BullMQ 3회 재시도 소진
+  └─ emit(VIDEO_EVENTS.FAILED)
+       └─ DlqService.onVideoFailed()    ← @OnEvent 리스너
+            └─ failed_jobs INSERT
+                 └─ POST /queue/failed-jobs/:id/retry
+                      ├─ video.status = PENDING 리셋
+                      ├─ 새 BullMQ 잡 등록
+                      └─ 409 Conflict (중복 재처리 방지)
+```
+
+### 5. 3-stage Docker 멀티스테이지 빌드
+
+```dockerfile
+# Stage 1: builder (devDeps 포함 전체 빌드)
+FROM node:20-alpine AS builder
+RUN npm ci && npm run build        # dist/ 생성
+
+# Stage 2: production-deps (devDeps 제거)
+FROM node:20-alpine AS production-deps
+RUN npm ci --omit=dev              # node_modules 경량화
+
+# Stage 3: production (최소 이미지)
+FROM node:20-alpine AS production
+COPY --from=production-deps /app/node_modules .
+COPY --from=builder /app/dist .    # 소스코드 없음, dist만 복사
+```
+
+> 기존 `npm ci --only=production` 후 `nest build` 실행 시 `@nestjs/cli`(devDep)가 없어 빌드 실패하는 버그를 스테이지 분리로 해결.
 
 ---
 
 ## 기술 스택
 
-| 분류 | 기술 |
-|------|------|
-| 프레임워크 | NestJS 10, TypeScript 5 |
-| 데이터베이스 | PostgreSQL 16 + TypeORM 0.3 |
-| 큐 / 캐시 | Redis 7 + BullMQ 5 + ioredis |
-| 스토리지 | AWS S3 (`@aws-sdk/client-s3`) + MinIO 호환 |
-| 인증 | JWT (Passport.js) + bcryptjs salt=12 |
-| 실시간 | Socket.IO 4 (`@nestjs/websockets`) |
-| AI | OpenAI GPT-4o (Prompt 향상), FakeVideoProvider (시뮬레이션) |
-| 모니터링 | Bull Board (`@bull-board/nestjs`) |
-| 문서화 | Swagger / OpenAPI 3.0 |
-| 인프라 | Docker + Docker Compose (3-stage multi-stage build) |
-| 로깅 | Winston + nest-winston (JSON 구조화 로그) |
-| 보안 | Helmet, CORS, ThrottlerGuard, Basic Auth |
-| 헬스체크 | `@nestjs/terminus` TypeORM pingCheck |
+| 분류 | 기술 | 선택 이유 |
+|------|------|---------|
+| 프레임워크 | NestJS 10, TypeScript 5 | DI 컨테이너, 데코레이터 기반 모듈화, 엔터프라이즈 패턴 |
+| 데이터베이스 | PostgreSQL 16 + TypeORM | JSONB 메타데이터 저장, Optimistic Lock SQL |
+| 큐 / 캐시 | Redis 7 + BullMQ 5 | TypeScript 네이티브, 내장 재시도·지연·Rate Limiter |
+| 스토리지 | AWS S3 + MinIO 호환 | Presigned URL로 서버 대역폭 제로 |
+| 인증 | JWT (Passport.js) + bcryptjs | Stateless, 액세스(7d)/리프레시(30d) 이중 토큰 |
+| 실시간 | Socket.IO 4 | Room 기반 격리, reconnect 자동 처리 |
+| AI | OpenAI GPT-4o + FakeVideoProvider | 프롬프트 향상 + 테스트용 시뮬레이터 분리 |
+| 모니터링 | Bull Board | 큐 시각화, 잡 재처리 UI |
+| 문서화 | Swagger / OpenAPI 3.0 | Bearer Auth 내장, DTO → 스키마 자동 생성 |
+| 인프라 | Docker Compose (3-stage build) | API/Worker 독립 스케일링 |
+| 로깅 | Winston + nest-winston | JSON 구조화 로그, 레벨별 파일 분리 |
+| 보안 | Helmet + ThrottlerGuard + RBAC | OWASP Top 10 대응 |
 
 ---
 
-## API 엔드포인트
+## API 엔드포인트 (18개)
 
 ### 인증 (`/api/v1/auth`)
 
 | Method | Endpoint | 설명 | 인증 |
 |--------|----------|------|------|
 | POST | `/auth/register` | 회원가입 | Public |
-| POST | `/auth/login` | 로그인 (토큰 발급) | Public |
+| POST | `/auth/login` | 로그인 (JWT 발급) | Public |
 | POST | `/auth/refresh` | 액세스 토큰 갱신 | Public |
 | GET | `/auth/profile` | 내 프로필 조회 | JWT |
 | POST | `/auth/logout` | 로그아웃 | JWT |
@@ -193,8 +208,8 @@ POST /queue/failed-jobs/:id/retry
 |--------|----------|------|------|
 | POST | `/videos` | 영상 생성 요청 (큐 등록) | JWT |
 | GET | `/videos` | 내 영상 목록 (페이지네이션 + 상태 필터) | JWT |
-| GET | `/videos/:id` | 작업 상태 폴링 (진행률 포함) | JWT |
-| GET | `/videos/:id/result` | Presigned 다운로드 URL 발급 | JWT |
+| GET | `/videos/:id` | 작업 상태 + 진행률 조회 | JWT |
+| GET | `/videos/:id/result` | Presigned 다운로드 URL 발급 (24h) | JWT |
 | PATCH | `/videos/:id` | 제목/메타데이터 수정 | JWT |
 | DELETE | `/videos/:id` | 영상 삭제 | JWT |
 
@@ -203,43 +218,41 @@ POST /queue/failed-jobs/:id/retry
 | Method | Endpoint | 설명 | 인증 |
 |--------|----------|------|------|
 | GET | `/queue/jobs/:jobId` | BullMQ 잡 상태 조회 | JWT |
-| GET | `/queue/failed-jobs` | DLQ — 영구 실패 잡 목록 | JWT |
-| GET | `/queue/failed-jobs/:id` | DLQ — 단건 조회 | JWT |
-| POST | `/queue/failed-jobs/:id/retry` | DLQ — 수동 재처리 | JWT |
+| GET | `/queue/failed-jobs` | DLQ 목록 (페이지네이션) | JWT |
+| GET | `/queue/failed-jobs/:id` | DLQ 단건 조회 | JWT |
+| POST | `/queue/failed-jobs/:id/retry` | DLQ 수동 재처리 | JWT |
 
-### 기타
+### 인프라
 
 | Method | Endpoint | 설명 | 인증 |
 |--------|----------|------|------|
-| GET | `/health` | 헬스체크 (DB 연결 확인) | Public |
+| GET | `/health` | 헬스체크 (DB pingCheck) | Public |
 | GET | `/admin/queues` | Bull Board 모니터링 UI | Basic Auth |
-| GET | `/api/docs` | Swagger UI | Public (비프로덕션) |
+| GET | `/docs` | Swagger UI | Public (비프로덕션) |
 
 ---
 
 ## 비동기 처리 파이프라인
 
 ```
-1. POST /videos
-   └─ Video 레코드 생성 (status: PENDING)
-   └─ BullMQ 잡 등록, queueJobId 저장
-   └─ emit('video.created') → WebSocket push
+① POST /videos  ──────────────────────────────────────────── < 100ms 응답
+   └─ Video(PENDING) 생성 → BullMQ enqueue → emit(video.created) → WS push
 
-2. VideoGenerationProcessor (Worker Container)
-   ├─ status → PROCESSING (Optimistic Lock), progress: 10%
-   ├─ emit('video.processing.started') → WebSocket push
-   ├─ GPT-4o 프롬프트 향상 (progress: 20%)
-   ├─ AI Provider 영상 생성 제출 (progress: 40%)
-   ├─ 10초 간격 폴링 (최대 30회 = 5분)
-   │    └─ emit('video.progress.updated') → WebSocket push
-   ├─ S3 업로드 (또는 alreadyStored=true 시 URL 직접 사용)
-   ├─ status → COMPLETED, videoUrl 저장
-   └─ emit('video.completed') → WebSocket push
+② Worker (별도 프로세스, 독립 스케일 가능)
+   ├─ PENDING → PROCESSING  (Optimistic Lock)        progress: 10%
+   ├─ GPT-4o Prompt 향상                             progress: 20%
+   ├─ AI Provider 제출                                progress: 40%
+   ├─ 10초 간격 폴링 × 최대 30회 (5분 타임아웃)       progress: 40→90%
+   │    └─ emit(video.progress.updated) → WS Room push (매 10초)
+   ├─ S3 업로드
+   └─ PROCESSING → COMPLETED                         progress: 100%
 
-3. 실패 시 (최대 3회 재시도, 지수 백오프: 5s → 25s → 125s)
-   └─ emit('video.failed') → DlqService → failed_jobs INSERT
+③ 실패 시 지수 백오프 재시도
+   1차 실패 →  5초 후 재시도
+   2차 실패 → 25초 후 재시도
+   3차 실패 → FAILED + DLQ INSERT + emit(video.failed) → WS push
 
-4. GET /videos/:id/result  →  Presigned URL 발급 (최대 24시간)
+④ GET /videos/:id/result → Presigned URL (서버 트래픽 제로)
 ```
 
 ---
@@ -247,144 +260,65 @@ POST /queue/failed-jobs/:id/retry
 ## 데이터베이스 스키마
 
 ### users
-
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
-| id | UUID PK | 사용자 ID |
-| email | VARCHAR UNIQUE | 이메일 |
-| username | VARCHAR UNIQUE | 사용자명 |
-| password | VARCHAR | bcryptjs 해시 (salt=12) |
+| id | UUID PK | |
+| email | VARCHAR UNIQUE | |
+| username | VARCHAR UNIQUE | |
+| password | VARCHAR | bcryptjs hash (salt=12) |
 | role | ENUM | ADMIN / USER |
-| isActive | BOOLEAN | 계정 활성 여부 |
+| isActive | BOOLEAN | |
 
 ### videos
-
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
-| id | UUID PK | 영상 ID |
-| title | VARCHAR | 제목 |
-| prompt | TEXT | 생성 프롬프트 |
+| id | UUID PK | |
+| prompt | TEXT | 원본 프롬프트 |
 | status | ENUM | PENDING / PROCESSING / COMPLETED / FAILED / CANCELLED |
-| videoUrl | VARCHAR | S3 영상 URL |
-| width / height / fps | INTEGER | 영상 해상도/프레임 |
-| metadata | JSONB | 진행률, aiJobId, 예상 잔여시간 |
+| videoUrl | VARCHAR | S3 업로드 URL |
+| metadata | JSONB | progressPercent, aiJobId, estimatedSecondsRemaining |
 | queueJobId | VARCHAR | BullMQ 잡 ID |
-| userId | UUID FK | 소유자 (CASCADE DELETE) |
+| userId | UUID FK | CASCADE DELETE |
 
 ### failed_jobs (DLQ)
-
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
-| id | UUID PK | DLQ 레코드 ID |
+| id | UUID PK | |
 | videoId | VARCHAR | 실패한 영상 ID |
-| queueJobId | VARCHAR | 실패 당시 BullMQ 잡 ID |
-| errorMessage | TEXT | 최종 에러 메시지 |
-| jobData | JSONB | 재처리용 잡 데이터 스냅샷 |
+| errorMessage | TEXT | 최종 에러 |
+| jobData | JSONB | 재처리용 원본 잡 데이터 |
 | attemptsMade | INT | 총 시도 횟수 |
 | retried | BOOLEAN | 수동 재처리 여부 |
 | retryJobId | VARCHAR | 재처리 시 발급된 새 잡 ID |
-| failedAt | TIMESTAMPTZ | 영구 실패 시각 |
+| failedAt | TIMESTAMPTZ | |
 
 ---
 
 ## 로컬 실행
 
-### 사전 요구사항
-
-- Node.js 20+
-- Docker & Docker Compose
-
-### 환경변수 설정
-
 ```bash
+# 1. 환경변수 설정
 cp .env.example .env
-# .env 파일에서 JWT_SECRET, DB 비밀번호, S3 키, OpenAI 키 설정
-```
 
-### Docker Compose로 전체 스택 실행
-
-```bash
-# PostgreSQL + Redis + API + Worker 동시 기동
+# 2. 전체 스택 기동 (PostgreSQL + Redis + API + Worker)
 docker-compose up -d
 
-# 로그 확인
-docker-compose logs -f api
-docker-compose logs -f worker
+# 3. 로그 확인
+docker-compose logs -f api worker
 ```
 
-### 개발 서버 실행 (로컬)
+| 서비스 | URL | 인증 |
+|--------|-----|------|
+| REST API | `http://localhost:3000/api/v1` | JWT Bearer |
+| Swagger UI | `http://localhost:3000/docs` | — |
+| Bull Board | `http://localhost:3000/admin/queues` | admin / admin |
+| WebSocket | `ws://localhost:3000/video-status` | — |
 
+**개발 모드 (로컬 PostgreSQL + Redis 직접 연결):**
 ```bash
 npm install
-
-# API 서버
-npm run start:dev
-
-# Worker (별도 터미널)
-npm run start:worker:dev
-```
-
-### 접속 정보
-
-| 서비스 | URL |
-|--------|-----|
-| REST API | `http://localhost:3000/api/v1` |
-| Swagger UI | `http://localhost:3000/docs` |
-| Bull Board | `http://localhost:3000/admin/queues` (admin/admin) |
-| WebSocket | `ws://localhost:3000/video-status` |
-
----
-
-## 환경변수
-
-```env
-# Application
-NODE_ENV=development
-PORT=3000
-CORS_ORIGIN=http://localhost:3001
-
-# PostgreSQL
-DB_HOST=localhost
-DB_PORT=5432
-DB_USERNAME=postgres
-DB_PASSWORD=postgres
-DB_DATABASE=ai_gen_video
-DB_SYNCHRONIZE=false
-DB_LOGGING=false
-
-# JWT
-JWT_SECRET=your-secret-key
-JWT_EXPIRES_IN=7d
-JWT_REFRESH_SECRET=your-refresh-secret
-JWT_REFRESH_EXPIRES_IN=30d
-
-# Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=
-
-# AWS S3 (또는 MinIO)
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=your-key
-AWS_SECRET_ACCESS_KEY=your-secret
-AWS_S3_BUCKET=ai-gen-video-storage
-AWS_S3_ENDPOINT=              # MinIO 사용 시 설정
-
-# OpenAI
-OPENAI_API_KEY=your-openai-key
-
-# AI Provider
-AI_VIDEO_PROVIDER=fake         # fake | openai
-AI_VIDEO_API_KEY=
-AI_VIDEO_API_URL=
-
-# Rate Limiting
-THROTTLE_TTL=60
-THROTTLE_LIMIT=100
-
-# Bull Board Monitoring
-MONITORING_USER=admin
-MONITORING_PASSWORD=change-me-in-production
+npm run start:dev        # API (터미널 1)
+npm run start:worker:dev # Worker (터미널 2)
 ```
 
 ---
@@ -394,13 +328,26 @@ MONITORING_PASSWORD=change-me-in-production
 | 항목 | 구현 |
 |------|------|
 | 인증 | JWT 액세스 토큰 (7d) + 리프레시 토큰 (30d) |
-| 비밀번호 | bcryptjs salt=12 |
-| 헤더 보안 | Helmet.js (XSS, Clickjacking, HSTS 등) |
-| Rate Limiting | 3-tier ThrottlerGuard (burst/standard/sustained) |
-| CORS | 설정된 Origin만 허용 |
-| S3 접근 | Presigned URL 기반 (버킷 직접 노출 없음) |
-| 모니터링 UI | HTTP Basic Auth 보호 |
-| 권한 분리 | RolesGuard (ADMIN / USER RBAC) |
+| 비밀번호 | bcryptjs salt=12 해시 |
+| HTTP 헤더 | Helmet.js — XSS, Clickjacking, HSTS, CSP |
+| Rate Limiting | 3-tier ThrottlerGuard (전역 적용, 엔드포인트 오버라이드) |
+| CORS | 허용 Origin 화이트리스트 |
+| S3 | Presigned URL — 버킷 직접 노출 없음 |
+| 모니터링 UI | HTTP Basic Auth (MONITORING_USER/PASSWORD) |
+| 권한 | RolesGuard RBAC (ADMIN / USER) |
+
+---
+
+## 향후 개선 방향
+
+| 항목 | 내용 |
+|------|------|
+| 메시지 브로커 분리 | EventEmitter2 → Redis Pub/Sub → Kafka (계약 변경 없음) |
+| 인증 강화 | Refresh Token Rotation + Redis Blacklist |
+| 테스트 | Jest 단위 테스트 + Supertest E2E (현재 미구현) |
+| 쿠버네티스 | Helm Chart 작성, Worker HPA (CPU 기반 자동 스케일링) |
+| 메트릭 | Prometheus + Grafana 연동 (`@willsoto/nestjs-prometheus`) |
+| DB 마이그레이션 | TypeORM synchronize=false → Migration 파일 관리 |
 
 ---
 
@@ -408,18 +355,18 @@ MONITORING_PASSWORD=change-me-in-production
 
 | 단계 | 내용 |
 |------|------|
-| 1단계 | NestJS 백엔드 아키텍처 설계 — 모듈 구조, JWT 인증, TypeORM 연동 |
-| 2단계 | REST API 설계 및 구현 — 영상 CRUD, 페이지네이션, Swagger 문서화 |
-| 3단계 | BullMQ 잡큐 구현 — Bull → BullMQ 마이그레이션, 재시도 로직, 상태 추적 |
-| 4단계 | AI 워커 서비스 — FakeVideoProvider 시뮬레이터, 진행률 폴링, S3 업로드 파이프라인 |
-| 5단계 | AWS S3 스토리지 통합 — S3Provider 분리, 에러 핸들링, 지수 백오프 재시도 로직 |
-| 6단계 | 잡 상태 시스템 — Redis 캐시, Optimistic Locking, State Machine, Idempotency |
-| 7단계 | 컨테이너 아키텍처 — API/Worker 분리 컨테이너, 3단계 멀티스테이지 빌드 최적화 |
-| 8단계 | MSA 기반 — 서비스 계약 인터페이스, 도메인 이벤트 시스템, 헬스체크 엔드포인트 |
-| 9단계 | Rate Limiting — 3단계 Named Throttler (burst/standard/sustained), 엔드포인트별 정책 |
-| 10단계 | WebSocket 실시간 잡 상태 — Socket.IO Gateway, 도메인 이벤트 → Room push |
-| 11단계 | Dead Letter Queue — 영구 실패 잡 PostgreSQL 영속화, 수동 재처리 API (list/retry) |
-| 12단계 | 큐 모니터링 — Bull Board UI (/admin/queues), Basic Auth 보호, BullMQAdapter 연동 |
+| 1단계 | NestJS 아키텍처 설계 — 모듈 구조, JWT 인증, TypeORM 연동 |
+| 2단계 | REST API — 영상 CRUD, 페이지네이션, Swagger 문서화 |
+| 3단계 | BullMQ 잡큐 — Bull → BullMQ 마이그레이션, 재시도, 상태 추적 |
+| 4단계 | AI 워커 — FakeVideoProvider 시뮬레이터, 진행률 폴링, S3 파이프라인 |
+| 5단계 | AWS S3 통합 — S3Provider 분리, 지수 백오프 재시도 |
+| 6단계 | 잡 상태 시스템 — Optimistic Locking, State Machine, Redis Cache |
+| 7단계 | 컨테이너 아키텍처 — API/Worker 분리, 3-stage 멀티스테이지 빌드 |
+| 8단계 | MSA 기반 — 서비스 계약 인터페이스, 도메인 이벤트, 헬스체크 |
+| 9단계 | Rate Limiting — 3-tier Named Throttler, 엔드포인트별 정책 |
+| 10단계 | WebSocket 실시간 — Socket.IO Gateway, 도메인 이벤트 → Room push |
+| 11단계 | Dead Letter Queue — 영구 실패 잡 영속화, 수동 재처리 API |
+| 12단계 | 큐 모니터링 — Bull Board UI, Basic Auth 보호 |
 
 ---
 
@@ -427,36 +374,20 @@ MONITORING_PASSWORD=change-me-in-production
 
 ```
 src/
-├── main.ts                      # API 앱 부트스트랩 (Swagger, Security, Versioning)
-├── main.worker.ts               # Worker 전용 부트스트랩 (Headless, Graceful Shutdown)
-├── app.module.ts                # 루트 모듈
-├── worker-app.module.ts         # Worker 전용 모듈 (Auth/Throttler 제외)
-├── config/                      # 환경변수 기반 설정 (DB, JWT, Redis, S3)
-├── common/                      # 공통 계층
-│   ├── decorators/              # @CurrentUser, @Public, @Roles, @SkipThrottle
-│   ├── filters/                 # HttpExceptionFilter (전역 예외 처리)
-│   ├── guards/                  # JwtAuthGuard, RolesGuard
-│   ├── interceptors/            # TransformInterceptor (응답 표준화), LoggingInterceptor
-│   └── pipes/                   # ValidationPipe (DTO 유효성 검사)
+├── main.ts / main.worker.ts     # API · Worker 각각의 부트스트랩
 ├── shared/
-│   ├── contracts/               # IVideoService, IAiService, IStorageService (MSA 계약)
-│   └── events/                  # VideoCreatedEvent, VideoCompletedEvent 등 도메인 이벤트
+│   ├── contracts/               # IVideoService, IAiService (MSA 계약)
+│   └── events/                  # 도메인 이벤트 클래스 (transport-agnostic)
 └── modules/
-    ├── auth/                    # 회원가입, 로그인, 토큰 갱신 (Passport JWT)
-    ├── users/                   # 사용자 엔티티 및 CRUD (RBAC)
-    ├── videos/                  # 영상 생성 요청, 상태 조회, Presigned URL
-    ├── ai/                      # AI Provider 추상화 계층
-    │   └── providers/
-    │       ├── fake-video.provider.ts   # 개발/테스트용 인메모리 시뮬레이터
-    │       └── openai.provider.ts       # 실제 AI 연동 (확장 가능)
-    ├── queue/                   # BullMQ 큐, 워커 프로세서, 잡 상태, DLQ
+    ├── auth/                    # JWT · Passport · Refresh Token
+    ├── videos/                  # CRUD · 상태 조회 · Presigned URL
+    ├── queue/
     │   ├── processors/          # VideoGenerationProcessor (WorkerHost)
-    │   ├── entities/            # FailedJob (DLQ 엔티티)
-    │   ├── dto/                 # JobStatusDto, FailedJobDto
-    │   ├── job-status.service.ts # Optimistic Locking + Redis Cache
-    │   └── dlq.service.ts       # 이벤트 캡처 + 재처리 로직
-    ├── storage/                 # S3 업로드, Presigned URL, 지수 백오프 재시도
-    ├── gateway/                 # Socket.IO WebSocket Gateway (Room 기반)
-    ├── health/                  # @nestjs/terminus 헬스체크
-    └── monitoring/              # Bull Board UI + Basic Auth 미들웨어
+    │   ├── job-status.service   # Optimistic Locking + Redis Cache
+    │   └── dlq.service          # DLQ 이벤트 캡처 + 재처리
+    ├── ai/providers/            # FakeVideoProvider · OpenAIProvider
+    ├── storage/                 # S3 업로드 · Presigned URL · 재시도
+    ├── gateway/                 # Socket.IO WebSocket (Room 기반)
+    ├── health/                  # @nestjs/terminus pingCheck
+    └── monitoring/              # Bull Board + Basic Auth 미들웨어
 ```
