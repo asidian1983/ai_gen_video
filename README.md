@@ -1,5 +1,8 @@
 # AI Video Generation Backend Platform
 
+> 랜딩 페이지
+https://asidian1983.github.io/ai_gen_video/
+
 > **프로덕션 수준의 NestJS 백엔드** — AI 기반 영상 생성 서비스의 백엔드 인프라 전체를 직접 설계·구현한 포트폴리오 프로젝트
 
 [![NestJS](https://img.shields.io/badge/NestJS-10-E0234E?style=flat-square&logo=nestjs)](https://nestjs.com)
