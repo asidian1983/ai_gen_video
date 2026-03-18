@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="ko" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Video Generation Backend Platform</title>
+  <meta name="description" content="프로덕션 수준의 NestJS 백엔드 — BullMQ, WebSocket, DLQ, Docker, AWS S3를 갖춘 AI 영상 생성 플랫폼" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+          colors: {
+            brand: { 50:'#eef2ff', 100:'#e0e7ff', 500:'#6366f1', 600:'#4f46e5', 700:'#4338ca', 900:'#312e81' },
+          },
+          animation: {
+            'fade-up': 'fadeUp 0.6s ease-out forwards',
+            'pulse-slow': 'pulse 3s cubic-bezier(0.4,0,0.6,1) infinite',
+          },
+          keyframes: {
+            fadeUp: { '0%': { opacity:'0', transform:'translateY(20px)' }, '100%': { opacity:'1', transform:'translateY(0)' } },
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    body { background-color: #0a0a0f; color: #e2e8f0; }
+    .gradient-text { background: linear-gradient(135deg, #818cf8 0%, #a78bfa 50%, #38bdf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .gradient-border { background: linear-gradient(135deg, #6366f1, #a78bfa, #38bdf8); padding: 1px; border-radius: 12px; }
+    .gradient-border > * { background: #0f0f1a; border-radius: 11px; }
+    .hero-glow { background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(99,102,241,0.25) 0%, transparent 70%); }
+    .card-hover { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+    .card-hover:hover { transform: translateY(-4px); box-shadow: 0 20px 40px -12px rgba(99,102,241,0.3); }
+    .code-block { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.7; }
+    .badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; }
+    pre { overflow-x: auto; }
+    .timeline-item::before { content: ''; position: absolute; left: -1px; top: 28px; bottom: -28px; width: 1px; background: linear-gradient(to bottom, #6366f1, transparent); }
+    .timeline-item:last-child::before { display: none; }
+    ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #0a0a0f; } ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+  </style>
+</head>
+<body class="font-sans antialiased">
+
+  <!-- ─── NAV ─────────────────────────────────────────────────────────────── -->
+  <nav class="fixed top-0 inset-x-0 z-50 backdrop-blur-md border-b border-white/5" style="background:rgba(10,10,15,0.85)">
+    <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#6366f1,#a78bfa)">
+          <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.069A1 1 0 0121 8.882v6.236a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
+        </div>
+        <span class="font-bold text-white text-sm">AI Video Backend</span>
+      </div>
+      <div class="hidden md:flex items-center gap-8 text-sm text-slate-400">
+        <a href="#features" class="hover:text-white transition-colors">Features</a>
+        <a href="#architecture" class="hover:text-white transition-colors">Architecture</a>
+        <a href="#stack" class="hover:text-white transition-colors">Tech Stack</a>
+        <a href="#api" class="hover:text-white transition-colors">API</a>
+        <a href="#quickstart" class="hover:text-white transition-colors">Quick Start</a>
+      </div>
+      <a href="https://github.com/asidian1983/ai_gen_video" target="_blank"
+         class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white border border-white/10 hover:border-white/30 transition-all">
+        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </nav>
+
+  <!-- ─── HERO ─────────────────────────────────────────────────────────────── -->
+  <section class="hero-glow relative pt-32 pb-24 px-6 text-center overflow-hidden">
+    <!-- background grid -->
+    <div class="absolute inset-0 opacity-10" style="background-image:linear-gradient(rgba(99,102,241,0.3) 1px,transparent 1px),linear-gradient(90deg,rgba(99,102,241,0.3) 1px,transparent 1px);background-size:60px 60px"></div>
+
+    <div class="relative max-w-4xl mx-auto">
+      <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 text-sm mb-8">
+        <span class="w-2 h-2 rounded-full bg-indigo-400 animate-pulse-slow"></span>
+        Production-grade NestJS Backend · 12 Stages
+      </div>
+
+      <h1 class="text-5xl md:text-7xl font-black tracking-tight mb-6 leading-none">
+        <span class="text-white">AI Video</span><br/>
+        <span class="gradient-text">Generation Backend</span>
+      </h1>
+
+      <p class="text-xl text-slate-400 max-w-2xl mx-auto mb-10 leading-relaxed">
+        AI 영상 생성 플랫폼을 실제 서비스처럼 운영하기 위한
+        <strong class="text-slate-200">백엔드 인프라 전체</strong>를 직접 설계·구현했습니다.
+        단순 CRUD를 넘어, Race Condition · 실시간 WebSocket · Dead Letter Queue · Rate Limiting까지.
+      </p>
+
+      <div class="flex flex-wrap justify-center gap-4 mb-14">
+        <a href="https://github.com/asidian1983/ai_gen_video" target="_blank"
+           class="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white transition-all hover:opacity-90"
+           style="background:linear-gradient(135deg,#6366f1,#a78bfa)">
+          <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+          GitHub 보기
+        </a>
+        <a href="#architecture"
+           class="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-slate-300 border border-white/10 hover:border-white/30 hover:text-white transition-all">
+          아키텍처 보기
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </a>
+      </div>
+
+      <!-- Stats -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-3xl mx-auto">
+        <div class="p-4 rounded-xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="text-3xl font-black gradient-text">18</div>
+          <div class="text-xs text-slate-500 mt-1">REST Endpoints</div>
+        </div>
+        <div class="p-4 rounded-xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="text-3xl font-black gradient-text">12</div>
+          <div class="text-xs text-slate-500 mt-1">NestJS Modules</div>
+        </div>
+        <div class="p-4 rounded-xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="text-3xl font-black gradient-text">4</div>
+          <div class="text-xs text-slate-500 mt-1">Docker Services</div>
+        </div>
+        <div class="p-4 rounded-xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="text-3xl font-black gradient-text">12</div>
+          <div class="text-xs text-slate-500 mt-1">Dev Stages</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── PROBLEMS SOLVED ──────────────────────────────────────────────────── -->
+  <section id="features" class="py-24 px-6">
+    <div class="max-w-6xl mx-auto">
+      <div class="text-center mb-16">
+        <div class="badge bg-rose-500/10 text-rose-400 border border-rose-500/20 mb-4">Problems Solved</div>
+        <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">단순 CRUD를 넘어선 문제 해결</h2>
+        <p class="text-slate-400 max-w-xl mx-auto">실제 AI SaaS 서비스에서 반드시 마주치는 난제들을 직접 설계하고 구현했습니다.</p>
+      </div>
+
+      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <!-- Card 1 -->
+        <div class="card-hover p-6 rounded-2xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center mb-4" style="background:rgba(99,102,241,0.15)">
+            <svg class="w-5 h-5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          </div>
+          <div class="text-xs text-slate-500 mb-2">Problem</div>
+          <p class="text-slate-300 text-sm font-medium mb-3">AI 생성 작업이 수십 초~수 분 소요</p>
+          <div class="border-t border-white/5 pt-3">
+            <div class="text-xs text-indigo-400 font-semibold mb-1">Solution</div>
+            <p class="text-slate-400 text-sm">BullMQ 비동기 잡 큐 + 지수 백오프 재시도 (3회)</p>
+          </div>
+        </div>
+        <!-- Card 2 -->
+        <div class="card-hover p-6 rounded-2xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center mb-4" style="background:rgba(239,68,68,0.1)">
+            <svg class="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          </div>
+          <div class="text-xs text-slate-500 mb-2">Problem</div>
+          <p class="text-slate-300 text-sm font-medium mb-3">동시 Worker의 Race Condition</p>
+          <div class="border-t border-white/5 pt-3">
+            <div class="text-xs text-indigo-400 font-semibold mb-1">Solution</div>
+            <p class="text-slate-400 text-sm">DB 레벨 Optimistic Locking — <code class="text-indigo-300 text-xs">UPDATE WHERE status=:expected</code></p>
+          </div>
+        </div>
+        <!-- Card 3 -->
+        <div class="card-hover p-6 rounded-2xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center mb-4" style="background:rgba(16,185,129,0.1)">
+            <svg class="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          </div>
+          <div class="text-xs text-slate-500 mb-2">Problem</div>
+          <p class="text-slate-300 text-sm font-medium mb-3">클라이언트 반복 폴링으로 인한 부하</p>
+          <div class="border-t border-white/5 pt-3">
+            <div class="text-xs text-indigo-400 font-semibold mb-1">Solution</div>
+            <p class="text-slate-400 text-sm">Socket.IO WebSocket Room — EventEmitter2 도메인 이벤트 브리지</p>
+          </div>
+        </div>
+        <!-- Card 4 -->
+        <div class="card-hover p-6 rounded-2xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center mb-4" style="background:rgba(245,158,11,0.1)">
+            <svg class="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          </div>
+          <div class="text-xs text-slate-500 mb-2">Problem</div>
+          <p class="text-slate-300 text-sm font-medium mb-3">최종 실패 잡의 데이터 유실</p>
+          <div class="border-t border-white/5 pt-3">
+            <div class="text-xs text-indigo-400 font-semibold mb-1">Solution</div>
+            <p class="text-slate-400 text-sm">Dead Letter Queue — PostgreSQL 영구 저장 + 수동 재처리 API</p>
+          </div>
+        </div>
+        <!-- Card 5 -->
+        <div class="card-hover p-6 rounded-2xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center mb-4" style="background:rgba(168,85,247,0.1)">
+            <svg class="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+          </div>
+          <div class="text-xs text-slate-500 mb-2">Problem</div>
+          <p class="text-slate-300 text-sm font-medium mb-3">API 남용 및 Brute-force 공격</p>
+          <div class="border-t border-white/5 pt-3">
+            <div class="text-xs text-indigo-400 font-semibold mb-1">Solution</div>
+            <p class="text-slate-400 text-sm">3-tier Named Throttler — burst / standard / sustained 계층별 제한</p>
+          </div>
+        </div>
+        <!-- Card 6 -->
+        <div class="card-hover p-6 rounded-2xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center mb-4" style="background:rgba(56,189,248,0.1)">
+            <svg class="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
+          </div>
+          <div class="text-xs text-slate-500 mb-2">Problem</div>
+          <p class="text-slate-300 text-sm font-medium mb-3">AI 처리가 API 서버를 블로킹</p>
+          <div class="border-t border-white/5 pt-3">
+            <div class="text-xs text-indigo-400 font-semibold mb-1">Solution</div>
+            <p class="text-slate-400 text-sm">API / Worker 컨테이너 분리 — 독립 스케일링 가능</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── ARCHITECTURE ─────────────────────────────────────────────────────── -->
+  <section id="architecture" class="py-24 px-6" style="background:rgba(255,255,255,0.01)">
+    <div class="max-w-6xl mx-auto">
+      <div class="text-center mb-16">
+        <div class="badge bg-sky-500/10 text-sky-400 border border-sky-500/20 mb-4">Architecture</div>
+        <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">시스템 아키텍처</h2>
+        <p class="text-slate-400">API / Worker / Redis / PostgreSQL / S3를 분리한 프로덕션 아키텍처</p>
+      </div>
+
+      <div class="grid lg:grid-cols-2 gap-8 items-start">
+        <!-- Arch diagram -->
+        <div class="code-block p-6 text-slate-300 text-sm leading-relaxed">
+          <div class="flex items-center gap-2 mb-4 pb-3 border-b border-white/5">
+            <div class="w-3 h-3 rounded-full bg-red-500"></div>
+            <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+            <div class="w-3 h-3 rounded-full bg-green-500"></div>
+            <span class="text-slate-500 text-xs ml-2">system-architecture</span>
+          </div>
+<pre class="text-xs"><span class="text-slate-500">┌──────────────────────────────────────┐</span>
+<span class="text-slate-500">│</span> <span class="text-sky-300">Client</span>                               <span class="text-slate-500">│</span>
+<span class="text-slate-500">│</span>   ├─ <span class="text-green-300">HTTP</span>  → REST API                <span class="text-slate-500">│</span>
+<span class="text-slate-500">│</span>   └─ <span class="text-purple-300">WS</span>    → Socket.IO Gateway       <span class="text-slate-500">│</span>
+<span class="text-slate-500">└─────────────────┬────────────────────┘</span>
+                  <span class="text-slate-500">│</span>
+         <span class="text-slate-500">┌────────▼────────┐</span>
+         <span class="text-slate-500">│</span> <span class="text-indigo-300">API Container</span>    <span class="text-slate-500">│</span> JWT · Rate Limit
+         <span class="text-slate-500">│</span> NestJS + Express  <span class="text-slate-500">│</span> Swagger · Helmet
+         <span class="text-slate-500">└────────┬────────┘</span>
+                  <span class="text-slate-500">│</span> BullMQ.add(job)
+         <span class="text-slate-500">┌────────▼────────┐</span>
+         <span class="text-slate-500">│</span> <span class="text-red-300">Redis 7</span>           <span class="text-slate-500">│</span> Queue Transport
+         <span class="text-slate-500">│</span> Queue + Cache     <span class="text-slate-500">│</span> TTL 5분 캐시
+         <span class="text-slate-500">└────────┬────────┘</span>
+                  <span class="text-slate-500">│</span> Worker.process(job)
+         <span class="text-slate-500">┌────────▼────────┐</span>
+         <span class="text-slate-500">│</span> <span class="text-yellow-300">Worker Container</span>  <span class="text-slate-500">│</span> GPT-4o Prompt 향상
+         <span class="text-slate-500">│</span> Headless NestJS   <span class="text-slate-500">│</span> AI Provider + 폴링
+         <span class="text-slate-500">└──┬──────────┬──┘</span>
+            <span class="text-slate-500">│</span>          <span class="text-slate-500">│</span> EventEmitter2
+         <span class="text-slate-500">┌──▼──┐</span>    <span class="text-slate-500">┌──▼──────────┐</span>
+         <span class="text-slate-500">│</span><span class="text-green-300">S3</span>   <span class="text-slate-500">│</span>    <span class="text-slate-500">│</span> <span class="text-blue-300">PostgreSQL</span>   <span class="text-slate-500">│</span>
+         <span class="text-slate-500">│</span>영상 <span class="text-slate-500">│</span>    <span class="text-slate-500">│</span> 상태 영속화  <span class="text-slate-500">│</span>
+         <span class="text-slate-500">└─────┘</span>    <span class="text-slate-500">└─────────────┘</span></pre>
+        </div>
+
+        <!-- One image, two services -->
+        <div class="space-y-5">
+          <div class="gradient-border">
+            <div class="p-5">
+              <h3 class="text-white font-semibold mb-2">One Image, Two Services</h3>
+              <p class="text-slate-400 text-sm mb-4">동일한 Docker 이미지를 API와 Worker 두 컨테이너로 실행. Worker는 독립 스케일링 가능.</p>
+              <div class="code-block p-4 text-xs">
+<pre><span class="text-slate-500"># docker-compose.yml</span>
+<span class="text-sky-300">api</span>:
+  image: ai-gen-video:latest
+  command: <span class="text-green-300">node dist/main</span>
+  ports: ["3000:3000"]
+
+<span class="text-yellow-300">worker</span>:
+  image: ai-gen-video:latest  <span class="text-slate-500"># 동일 이미지</span>
+  command: <span class="text-green-300">node dist/main.worker</span>
+  <span class="text-slate-500"># HTTP 포트 없음 — 독립 스케일링</span></pre>
+              </div>
+            </div>
+          </div>
+
+          <div class="gradient-border">
+            <div class="p-5">
+              <h3 class="text-white font-semibold mb-2">Domain Event Fan-out</h3>
+              <p class="text-slate-400 text-sm mb-4">Processor, Gateway, DLQ가 직접 의존하지 않음. Kafka 마이그레이션 시 코드 변경 없음.</p>
+              <div class="code-block p-4 text-xs">
+<pre><span class="text-purple-300">VideoGenerationProcessor</span>
+  └─ eventEmitter.emit(<span class="text-green-300">'video.completed'</span>)
+                        │
+          <span class="text-slate-500">┌───────────┼───────────┐</span>
+          ▼           ▼           ▼
+   <span class="text-sky-300">VideoGateway</span>  <span class="text-amber-300">DlqService</span>  <span class="text-slate-500">(Kafka)</span>
+  (WS Room push) (DB 저장)</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── TECH STACK ────────────────────────────────────────────────────────── -->
+  <section id="stack" class="py-24 px-6">
+    <div class="max-w-6xl mx-auto">
+      <div class="text-center mb-16">
+        <div class="badge bg-violet-500/10 text-violet-400 border border-violet-500/20 mb-4">Tech Stack</div>
+        <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">기술 스택</h2>
+        <p class="text-slate-400">각 기술의 선택 이유까지 고려한 아키텍처 결정</p>
+      </div>
+
+      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="card-hover p-5 rounded-2xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center text-sm">🏗️</div>
+            <span class="font-semibold text-white text-sm">NestJS 10 + TypeScript 5</span>
+          </div>
+          <p class="text-slate-400 text-xs">DI 컨테이너, 데코레이터 기반 모듈화, 엔터프라이즈 패턴 — 대규모 팀에서도 유지보수 가능한 구조</p>
+        </div>
+        <div class="card-hover p-5 rounded-2xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-sm">🐘</div>
+            <span class="font-semibold text-white text-sm">PostgreSQL + TypeORM</span>
+          </div>
+          <p class="text-slate-400 text-xs">JSONB 메타데이터, Optimistic Lock SQL, 상태 머신 강제 — SELECT FOR UPDATE 없이 Race Condition 해결</p>
+        </div>
+        <div class="card-hover p-5 rounded-2xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-8 h-8 rounded-lg bg-red-600/10 flex items-center justify-center text-sm">⚡</div>
+            <span class="font-semibold text-white text-sm">Redis + BullMQ 5</span>
+          </div>
+          <p class="text-slate-400 text-xs">TypeScript 네이티브, 내장 재시도·지연·Rate Limiter — Bull 대비 완전한 타입 지원</p>
+        </div>
+        <div class="card-hover p-5 rounded-2xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center text-sm">☁️</div>
+            <span class="font-semibold text-white text-sm">AWS S3 + MinIO 호환</span>
+          </div>
+          <p class="text-slate-400 text-xs">Presigned URL로 서버 대역폭 제로, 지수 백오프 재시도, MinIO 로컬 테스트 지원</p>
+        </div>
+        <div class="card-hover p-5 rounded-2xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center text-sm">🔌</div>
+            <span class="font-semibold text-white text-sm">Socket.IO 4</span>
+          </div>
+          <p class="text-slate-400 text-xs">Room 기반 격리, 자동 reconnect, namespace 분리 — DB 조회 없이 실시간 진행률 push</p>
+        </div>
+        <div class="card-hover p-5 rounded-2xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center text-sm">🐳</div>
+            <span class="font-semibold text-white text-sm">Docker (3-stage build)</span>
+          </div>
+          <p class="text-slate-400 text-xs">builder → production-deps → production 분리, devDeps 없는 최소 이미지, SIGTERM 그레이스풀 셧다운</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── OPTIMISTIC LOCK DEEP DIVE ────────────────────────────────────────── -->
+  <section class="py-24 px-6" style="background:rgba(99,102,241,0.03); border-top:1px solid rgba(255,255,255,0.04); border-bottom:1px solid rgba(255,255,255,0.04)">
+    <div class="max-w-5xl mx-auto">
+      <div class="text-center mb-14">
+        <div class="badge bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 mb-4">Deep Dive</div>
+        <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">핵심 설계 결정</h2>
+        <p class="text-slate-400">Why를 설명할 수 있는 엔지니어링</p>
+      </div>
+      <div class="grid md:grid-cols-2 gap-6">
+        <!-- Optimistic Lock -->
+        <div class="gradient-border">
+          <div class="p-6">
+            <h3 class="text-white font-bold mb-1">Optimistic Locking</h3>
+            <p class="text-slate-500 text-xs mb-4">vs Pessimistic Lock (SELECT FOR UPDATE)</p>
+            <div class="code-block p-4 mb-4 text-xs">
+<pre><span class="text-slate-500">-- 단 한 줄로 Race Condition 차단</span>
+<span class="text-sky-300">UPDATE</span> videos
+<span class="text-sky-300">SET</span> status = <span class="text-green-300">'processing'</span>
+<span class="text-sky-300">WHERE</span> id = :id
+  <span class="text-sky-300">AND</span> status = <span class="text-yellow-300">'pending'</span>
+
+<span class="text-slate-500">-- affected = 0 이면 다른 Worker가 선점</span>
+<span class="text-slate-500">-- → 현재 Worker 조용히 종료</span></pre>
+            </div>
+            <p class="text-slate-400 text-xs">Pessimistic Lock은 트랜잭션 유지 중 네트워크 지연 시 전체 Worker 블로킹. Optimistic Lock은 <em>시도 → 실패 감지 → 포기</em> 패턴으로 불필요한 대기 없음.</p>
+          </div>
+        </div>
+        <!-- EventEmitter2 -->
+        <div class="gradient-border">
+          <div class="p-6">
+            <h3 class="text-white font-bold mb-1">EventEmitter2 도메인 이벤트</h3>
+            <p class="text-slate-500 text-xs mb-4">vs 직접 메서드 호출</p>
+            <div class="code-block p-4 mb-4 text-xs">
+<pre><span class="text-slate-500">// 직접 호출 (결합도 높음 ❌)</span>
+<span class="text-red-400">processor.videoGateway.emit()</span>
+<span class="text-red-400">processor.dlqService.capture()</span>
+
+<span class="text-slate-500">// 도메인 이벤트 (결합도 낮음 ✅)</span>
+eventEmitter.emit(<span class="text-green-300">'video.failed'</span>, event)
+<span class="text-slate-500">// Gateway, DLQ가 독립적으로 구독</span>
+<span class="text-slate-500">// Kafka 교체 시 코드 변경 없음</span></pre>
+            </div>
+            <p class="text-slate-400 text-xs">새 소비자(Slack 알림 등) 추가 시 Processor 수정 불필요. in-process → Redis Pub/Sub → Kafka 마이그레이션이 이벤트 타입 계약만 유지하면 가능.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── API REFERENCE ────────────────────────────────────────────────────── -->
+  <section id="api" class="py-24 px-6">
+    <div class="max-w-5xl mx-auto">
+      <div class="text-center mb-16">
+        <div class="badge bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 mb-4">API Reference</div>
+        <h2 class="text-3xl md:text-4xl font-bold text-white mb-4">18개 REST 엔드포인트</h2>
+        <p class="text-slate-400">Swagger UI: <code class="text-indigo-300">http://localhost:3000/docs</code></p>
+      </div>
+      <div class="space-y-3">
+        <!-- Auth group -->
+        <div class="p-5 rounded-2xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">인증 · /api/v1/auth</div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-green-500/10 text-green-400 w-14 justify-center text-xs">POST</span><code class="text-slate-300">/auth/register</code><span class="text-slate-500 ml-auto text-xs">회원가입</span></div>
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-green-500/10 text-green-400 w-14 justify-center text-xs">POST</span><code class="text-slate-300">/auth/login</code><span class="text-slate-500 ml-auto text-xs">JWT 발급</span></div>
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-green-500/10 text-green-400 w-14 justify-center text-xs">POST</span><code class="text-slate-300">/auth/refresh</code><span class="text-slate-500 ml-auto text-xs">토큰 갱신</span></div>
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-sky-500/10 text-sky-400 w-14 justify-center text-xs">GET</span><code class="text-slate-300">/auth/profile</code><span class="text-slate-500 ml-auto text-xs">내 프로필 · JWT</span></div>
+          </div>
+        </div>
+        <!-- Videos group -->
+        <div class="p-5 rounded-2xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">영상 · /api/v1/videos</div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-green-500/10 text-green-400 w-14 justify-center text-xs">POST</span><code class="text-slate-300">/videos</code><span class="text-slate-500 ml-auto text-xs">생성 요청 (큐 등록) · Throttled</span></div>
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-sky-500/10 text-sky-400 w-14 justify-center text-xs">GET</span><code class="text-slate-300">/videos</code><span class="text-slate-500 ml-auto text-xs">목록 (페이지네이션 + 상태 필터)</span></div>
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-sky-500/10 text-sky-400 w-14 justify-center text-xs">GET</span><code class="text-slate-300">/videos/:id</code><span class="text-slate-500 ml-auto text-xs">상태 + 진행률</span></div>
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-sky-500/10 text-sky-400 w-14 justify-center text-xs">GET</span><code class="text-slate-300">/videos/:id/result</code><span class="text-slate-500 ml-auto text-xs">Presigned URL (24h)</span></div>
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-amber-500/10 text-amber-400 w-14 justify-center text-xs">PATCH</span><code class="text-slate-300">/videos/:id</code><span class="text-slate-500 ml-auto text-xs">메타데이터 수정</span></div>
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-red-500/10 text-red-400 w-14 justify-center text-xs">DELETE</span><code class="text-slate-300">/videos/:id</code><span class="text-slate-500 ml-auto text-xs">삭제</span></div>
+          </div>
+        </div>
+        <!-- Queue group -->
+        <div class="p-5 rounded-2xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">큐 관리 · /api/v1/queue</div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-sky-500/10 text-sky-400 w-14 justify-center text-xs">GET</span><code class="text-slate-300">/queue/jobs/:jobId</code><span class="text-slate-500 ml-auto text-xs">BullMQ 잡 상태</span></div>
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-sky-500/10 text-sky-400 w-14 justify-center text-xs">GET</span><code class="text-slate-300">/queue/failed-jobs</code><span class="text-slate-500 ml-auto text-xs">DLQ 목록</span></div>
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-sky-500/10 text-sky-400 w-14 justify-center text-xs">GET</span><code class="text-slate-300">/queue/failed-jobs/:id</code><span class="text-slate-500 ml-auto text-xs">DLQ 단건</span></div>
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-green-500/10 text-green-400 w-14 justify-center text-xs">POST</span><code class="text-slate-300">/queue/failed-jobs/:id/retry</code><span class="text-slate-500 ml-auto text-xs">수동 재처리 · 409 idempotent</span></div>
+          </div>
+        </div>
+        <!-- Infra group -->
+        <div class="p-5 rounded-2xl border border-white/5" style="background:rgba(255,255,255,0.02)">
+          <div class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">인프라</div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-sky-500/10 text-sky-400 w-14 justify-center text-xs">GET</span><code class="text-slate-300">/health</code><span class="text-slate-500 ml-auto text-xs">DB pingCheck · Public</span></div>
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-sky-500/10 text-sky-400 w-14 justify-center text-xs">GET</span><code class="text-slate-300">/admin/queues</code><span class="text-slate-500 ml-auto text-xs">Bull Board UI · Basic Auth</span></div>
+            <div class="flex items-center gap-3 text-sm"><span class="badge bg-sky-500/10 text-sky-400 w-14 justify-center text-xs">WS</span><code class="text-slate-300">ws://.../video-status</code><span class="text-slate-500 ml-auto text-xs">Socket.IO namespace</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── QUICK START ───────────────────────────────────────────────────────── -->
+  <section id="quickstart" class="py-24 px-6" style="background:rgba(255,255,255,0.01)">
+    <div class="max-w-3xl mx-auto">
+      <div class="text-center mb-14">
+        <div class="badge bg-amber-500/10 text-amber-400 border border-amber-500/20 mb-4">Quick Start</div>
+        <h2 class="text-3xl font-bold text-white mb-4">로컬 실행</h2>
+        <p class="text-slate-400">Node.js 20+ 와 Docker만 있으면 됩니다</p>
+      </div>
+      <div class="space-y-4">
+        <div>
+          <p class="text-slate-400 text-sm mb-2">1. 환경변수 설정</p>
+          <div class="code-block p-4 text-sm"><pre><span class="text-slate-400">cp .env.example .env</span></pre></div>
+        </div>
+        <div>
+          <p class="text-slate-400 text-sm mb-2">2. 전체 스택 기동 (PostgreSQL + Redis + API + Worker)</p>
+          <div class="code-block p-4 text-sm"><pre><span class="text-green-400">docker-compose up -d</span>
+<span class="text-slate-400">docker-compose logs -f api worker</span></pre></div>
+        </div>
+        <div>
+          <p class="text-slate-400 text-sm mb-2">3. 접속</p>
+          <div class="code-block p-4 text-sm"><pre><span class="text-slate-500"># Swagger UI</span>
+<span class="text-sky-300">http://localhost:3000/docs</span>
+
+<span class="text-slate-500"># Bull Board (admin/admin)</span>
+<span class="text-sky-300">http://localhost:3000/admin/queues</span>
+
+<span class="text-slate-500"># WebSocket</span>
+<span class="text-sky-300">ws://localhost:3000/video-status</span></pre></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── TIMELINE ──────────────────────────────────────────────────────────── -->
+  <section class="py-24 px-6">
+    <div class="max-w-3xl mx-auto">
+      <div class="text-center mb-16">
+        <div class="badge bg-pink-500/10 text-pink-400 border border-pink-500/20 mb-4">Development Journey</div>
+        <h2 class="text-3xl font-bold text-white mb-4">12단계 구현 이력</h2>
+        <p class="text-slate-400">아키텍처 설계부터 모니터링까지 단계적으로 확장</p>
+      </div>
+      <div class="space-y-0">
+        <div class="flex gap-5 timeline-item relative pl-8">
+          <div class="absolute left-0 top-1 w-6 h-6 rounded-full border-2 border-indigo-500 bg-indigo-500/20 flex items-center justify-center flex-shrink-0"><div class="w-2 h-2 rounded-full bg-indigo-400"></div></div>
+          <div class="pb-8"><div class="text-xs text-indigo-400 font-semibold mb-1">Stage 1–2</div><div class="text-white font-medium text-sm">NestJS 아키텍처 설계 + REST API</div><div class="text-slate-500 text-xs mt-1">모듈 구조, JWT 인증, TypeORM, Swagger, CRUD, 페이지네이션</div></div>
+        </div>
+        <div class="flex gap-5 timeline-item relative pl-8">
+          <div class="absolute left-0 top-1 w-6 h-6 rounded-full border-2 border-violet-500 bg-violet-500/20 flex items-center justify-center flex-shrink-0"><div class="w-2 h-2 rounded-full bg-violet-400"></div></div>
+          <div class="pb-8"><div class="text-xs text-violet-400 font-semibold mb-1">Stage 3–4</div><div class="text-white font-medium text-sm">BullMQ 잡큐 + AI 워커</div><div class="text-slate-500 text-xs mt-1">Bull→BullMQ 마이그레이션, FakeVideoProvider, 진행률 폴링, S3 파이프라인</div></div>
+        </div>
+        <div class="flex gap-5 timeline-item relative pl-8">
+          <div class="absolute left-0 top-1 w-6 h-6 rounded-full border-2 border-sky-500 bg-sky-500/20 flex items-center justify-center flex-shrink-0"><div class="w-2 h-2 rounded-full bg-sky-400"></div></div>
+          <div class="pb-8"><div class="text-xs text-sky-400 font-semibold mb-1">Stage 5–6</div><div class="text-white font-medium text-sm">AWS S3 통합 + Optimistic Locking</div><div class="text-slate-500 text-xs mt-1">S3Provider, 지수 백오프, State Machine, Redis 캐시, Idempotency</div></div>
+        </div>
+        <div class="flex gap-5 timeline-item relative pl-8">
+          <div class="absolute left-0 top-1 w-6 h-6 rounded-full border-2 border-cyan-500 bg-cyan-500/20 flex items-center justify-center flex-shrink-0"><div class="w-2 h-2 rounded-full bg-cyan-400"></div></div>
+          <div class="pb-8"><div class="text-xs text-cyan-400 font-semibold mb-1">Stage 7–8</div><div class="text-white font-medium text-sm">컨테이너 아키텍처 + MSA 기반</div><div class="text-slate-500 text-xs mt-1">API/Worker 분리, 3-stage Docker 빌드, 서비스 계약 인터페이스, 도메인 이벤트, 헬스체크</div></div>
+        </div>
+        <div class="flex gap-5 timeline-item relative pl-8">
+          <div class="absolute left-0 top-1 w-6 h-6 rounded-full border-2 border-emerald-500 bg-emerald-500/20 flex items-center justify-center flex-shrink-0"><div class="w-2 h-2 rounded-full bg-emerald-400"></div></div>
+          <div class="pb-8"><div class="text-xs text-emerald-400 font-semibold mb-1">Stage 9–10</div><div class="text-white font-medium text-sm">Rate Limiting + WebSocket 실시간</div><div class="text-slate-500 text-xs mt-1">3-tier Named Throttler, Socket.IO Gateway, Room 기반 격리</div></div>
+        </div>
+        <div class="flex gap-5 relative pl-8">
+          <div class="absolute left-0 top-1 w-6 h-6 rounded-full border-2 border-pink-500 bg-pink-500/20 flex items-center justify-center flex-shrink-0"><div class="w-2 h-2 rounded-full bg-pink-400"></div></div>
+          <div class="pb-2"><div class="text-xs text-pink-400 font-semibold mb-1">Stage 11–12</div><div class="text-white font-medium text-sm">Dead Letter Queue + 큐 모니터링</div><div class="text-slate-500 text-xs mt-1">DLQ 영속화, 수동 재처리 API, Bull Board UI, Basic Auth</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── FOOTER ────────────────────────────────────────────────────────────── -->
+  <footer class="border-t border-white/5 py-12 px-6 text-center">
+    <div class="max-w-4xl mx-auto">
+      <div class="flex items-center justify-center gap-3 mb-4">
+        <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#6366f1,#a78bfa)">
+          <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.069A1 1 0 0121 8.882v6.236a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
+        </div>
+        <span class="font-bold text-white">AI Video Generation Backend</span>
+      </div>
+      <p class="text-slate-500 text-sm mb-6">NestJS · PostgreSQL · Redis · BullMQ · Socket.IO · AWS S3 · Docker</p>
+      <div class="flex justify-center gap-6 text-sm">
+        <a href="https://github.com/asidian1983/ai_gen_video" target="_blank" class="text-slate-400 hover:text-white transition-colors flex items-center gap-2">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+          GitHub
+        </a>
+        <a href="README.md" class="text-slate-400 hover:text-white transition-colors">README</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
