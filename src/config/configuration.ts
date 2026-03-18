@@ -6,6 +6,8 @@ export default () => ({
     corsOrigin: process.env.CORS_ORIGIN ?? '*',
     throttleTtl: parseInt(process.env.THROTTLE_TTL ?? '60', 10),
     throttleLimit: parseInt(process.env.THROTTLE_LIMIT ?? '100', 10),
+    monitoringUser: process.env.MONITORING_USER ?? 'admin',
+    monitoringPassword: process.env.MONITORING_PASSWORD ?? 'admin',
   },
   database: {
     host: process.env.DB_HOST ?? 'localhost',
