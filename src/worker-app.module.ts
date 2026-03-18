@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullMQModule } from '@nestjs/bullmq';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { WinstonModule } from 'nest-winston';
 import * as winston from 'winston';
 import configuration from './config/configuration';
@@ -18,6 +19,8 @@ import { StorageModule } from './modules/storage/storage.module';
  */
 @Module({
   imports: [
+    EventEmitterModule.forRoot({ wildcard: true, delimiter: '.' }),
+
     ConfigModule.forRoot({
       isGlobal: true,
       load: [configuration],
