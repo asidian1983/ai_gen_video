@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { BullMQModule } from '@nestjs/bullmq';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { WinstonModule } from 'nest-winston';
 import * as winston from 'winston';
 import configuration from './config/configuration';
@@ -12,9 +13,13 @@ import { VideosModule } from './modules/videos/videos.module';
 import { AiModule } from './modules/ai/ai.module';
 import { QueueModule } from './modules/queue/queue.module';
 import { StorageModule } from './modules/storage/storage.module';
+import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
+    // Domain events (in-process pub/sub; transport-agnostic contracts for MSA migration)
+    EventEmitterModule.forRoot({ wildcard: true, delimiter: '.' }),
+
     // Config
     ConfigModule.forRoot({
       isGlobal: true,
@@ -106,6 +111,7 @@ import { StorageModule } from './modules/storage/storage.module';
     AiModule,
     QueueModule,
     StorageModule,
+    HealthModule,
   ],
 })
 export class AppModule {}

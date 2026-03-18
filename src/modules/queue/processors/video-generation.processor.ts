@@ -1,12 +1,20 @@
 import { Processor, WorkerHost, OnWorkerActive, OnWorkerCompleted, OnWorkerFailed } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { VideosService } from '../../videos/videos.service';
 import { AiService } from '../../ai/ai.service';
 import { StorageService } from '../../storage/storage.service';
 import { JobStatusService } from '../job-status.service';
 import { VideoStatus } from '../../videos/enums/video-status.enum';
 import { VIDEO_GENERATION_QUEUE, VideoJobName } from '../constants/queue.constants';
+import {
+  VIDEO_EVENTS,
+  VideoProcessingStartedEvent,
+  VideoProgressUpdatedEvent,
+  VideoCompletedEvent,
+  VideoFailedEvent,
+} from '../../../shared/events/video.events';
 
 interface VideoGenerationJobData {
   videoId: string;
@@ -21,6 +29,7 @@ export class VideoGenerationProcessor extends WorkerHost {
     private readonly aiService: AiService,
     private readonly storageService: StorageService,
     private readonly jobStatusService: JobStatusService,
+    private readonly eventEmitter: EventEmitter2,
   ) {
     super();
   }
@@ -61,6 +70,10 @@ export class VideoGenerationProcessor extends WorkerHost {
         return;
       }
       await job.updateProgress(10);
+      this.eventEmitter.emit(
+        VIDEO_EVENTS.PROCESSING_STARTED,
+        new VideoProcessingStartedEvent(videoId, job.attemptsMade + 1),
+      );
 
       // Enhance prompt with AI
       const enhancedPrompt = await this.aiService.enhancePrompt(video.prompt);
@@ -117,6 +130,10 @@ export class VideoGenerationProcessor extends WorkerHost {
           { estimatedSecondsRemaining },
         );
         await job.updateProgress(progressPercent);
+        this.eventEmitter.emit(
+          VIDEO_EVENTS.PROGRESS_UPDATED,
+          new VideoProgressUpdatedEvent(videoId, progressPercent, `Rendering... (poll ${pollAttempts}/${maxPollAttempts})`),
+        );
 
         if (result.videoUrl) {
           const storedUrl = result.alreadyStored
@@ -138,6 +155,10 @@ export class VideoGenerationProcessor extends WorkerHost {
             },
           );
           await job.updateProgress(100);
+          this.eventEmitter.emit(
+            VIDEO_EVENTS.COMPLETED,
+            new VideoCompletedEvent(videoId, storedUrl, result.thumbnailUrl),
+          );
           return;
         }
       }
@@ -152,6 +173,10 @@ export class VideoGenerationProcessor extends WorkerHost {
       if (isFinalAttempt) {
         // Force-write FAILED — unconditional on final attempt, no optimistic guard needed
         await this.jobStatusService.markFailed(videoId, errorMessage);
+        this.eventEmitter.emit(
+          VIDEO_EVENTS.FAILED,
+          new VideoFailedEvent(videoId, errorMessage, job.attemptsMade + 1),
+        );
       }
 
       throw error; // BullMQ will retry if attempts remain

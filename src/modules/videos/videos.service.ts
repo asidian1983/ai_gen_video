@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Video } from './entities/video.entity';
 import { CreateVideoDto } from './dto/create-video.dto';
 import { UpdateVideoDto } from './dto/update-video.dto';
@@ -18,6 +19,7 @@ import { VideoStatus } from './enums/video-status.enum';
 import { User } from '../users/entities/user.entity';
 import { StorageService } from '../storage/storage.service';
 import { VIDEO_GENERATION_QUEUE, VIDEO_GENERATION_JOB } from '../queue/constants/queue.constants';
+import { VIDEO_EVENTS, VideoCreatedEvent } from '../../shared/events/video.events';
 
 const MAX_PRESIGN_TTL = 86400; // 24 hours
 
@@ -29,6 +31,7 @@ export class VideosService {
     @InjectQueue(VIDEO_GENERATION_QUEUE)
     private readonly videoQueue: Queue,
     private readonly storageService: StorageService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async createAndQueue(user: User, dto: CreateVideoDto): Promise<Video> {
@@ -42,6 +45,12 @@ export class VideosService {
     const job = await this.videoQueue.add(VIDEO_GENERATION_JOB, { videoId: saved.id });
     await this.videoRepository.update(saved.id, { queueJobId: String(job.id) });
     saved.queueJobId = String(job.id);
+
+    this.eventEmitter.emit(
+      VIDEO_EVENTS.CREATED,
+      new VideoCreatedEvent(saved.id, user.id, saved.prompt, saved.queueJobId),
+    );
+
     return saved;
   }
 
