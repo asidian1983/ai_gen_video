@@ -17,6 +17,7 @@ import { StorageModule } from './modules/storage/storage.module';
 import { HealthModule } from './modules/health/health.module';
 import { GatewayModule } from './modules/gateway/gateway.module';
 import { MonitoringModule } from './modules/monitoring/monitoring.module';
+import { ChatModule } from './modules/chat/chat.module';
 
 @Module({
   imports: [
@@ -132,6 +133,7 @@ import { MonitoringModule } from './modules/monitoring/monitoring.module';
     HealthModule,
     GatewayModule,
     MonitoringModule,
+    ChatModule,
   ],
   providers: [
     // Enforce ThrottlerGuard globally — previously configured but never activated
