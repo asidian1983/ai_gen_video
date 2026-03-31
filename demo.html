@@ -5,370 +5,854 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Interactive Demo — AI Video Generation Backend</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script>
     tailwind.config = {
       theme: {
         extend: {
-          fontFamily: { sans: ['Inter','sans-serif'], mono: ['JetBrains Mono','monospace'] },
+          fontFamily: { sans: ['Sora','sans-serif'], mono: ['JetBrains Mono','monospace'] },
         },
       },
     };
   </script>
   <style>
-    body { background:#0a0a0f; color:#e2e8f0; }
-    .gradient-text { background:linear-gradient(135deg,#818cf8,#a78bfa,#38bdf8); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
-    .panel { background:rgba(255,255,255,0.025); border:1px solid rgba(255,255,255,0.06); border-radius:16px; }
-    .code { font-family:'JetBrains Mono',monospace; font-size:12px; }
-    .log-entry { border-left:2px solid transparent; }
-    .log-entry.info  { border-color:#6366f1; background:rgba(99,102,241,0.05); }
-    .log-entry.ws    { border-color:#a78bfa; background:rgba(167,139,250,0.05); }
-    .log-entry.success{ border-color:#10b981; background:rgba(16,185,129,0.05); }
-    .log-entry.error { border-color:#ef4444; background:rgba(239,68,68,0.05); }
-    .log-entry.warn  { border-color:#f59e0b; background:rgba(245,158,11,0.05); }
-    .progress-bar { height:6px; border-radius:3px; background:rgba(255,255,255,0.06); overflow:hidden; }
-    .progress-fill { height:100%; border-radius:3px; background:linear-gradient(90deg,#6366f1,#a78bfa); transition:width 0.8s ease; }
-    .status-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
-    .status-PENDING    { background:#6366f1; animation:pulse 2s infinite; }
-    .status-PROCESSING { background:#f59e0b; animation:pulse 1s infinite; }
-    .status-COMPLETED  { background:#10b981; }
-    .status-FAILED     { background:#ef4444; }
-    .status-IDLE       { background:#475569; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-    .api-method { font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:600; padding:2px 6px; border-radius:4px; }
-    .method-POST   { background:rgba(16,185,129,0.15); color:#10b981; }
-    .method-GET    { background:rgba(56,189,248,0.15); color:#38bdf8; }
-    .method-WS     { background:rgba(167,139,250,0.15); color:#a78bfa; }
-    .method-STATUS { background:rgba(245,158,11,0.15); color:#f59e0b; }
-    textarea:focus, select:focus, input:focus { outline:none; border-color:#6366f1 !important; box-shadow:0 0 0 2px rgba(99,102,241,0.2); }
-    .btn-primary { background:linear-gradient(135deg,#6366f1,#a78bfa); transition:opacity 0.2s; }
-    .btn-primary:hover:not(:disabled) { opacity:0.9; }
-    .btn-primary:disabled { opacity:0.4; cursor:not-allowed; }
-    .video-card { background:linear-gradient(135deg,rgba(99,102,241,0.1),rgba(167,139,250,0.1)); border:1px solid rgba(99,102,241,0.3); border-radius:12px; }
-    ::-webkit-scrollbar { width:4px; height:4px; }
-    ::-webkit-scrollbar-track { background:transparent; }
-    ::-webkit-scrollbar-thumb { background:#374151; border-radius:2px; }
-    .json-key   { color:#a78bfa; }
-    .json-str   { color:#86efac; }
-    .json-num   { color:#93c5fd; }
-    .json-bool  { color:#f59e0b; }
-    .json-null  { color:#94a3b8; }
+    /* ── Base ── */
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      background: #05050d;
+      color: #dde3ef;
+      font-family: 'Sora', sans-serif;
+    }
+
+    /* ── Animated background mesh ── */
+    .bg-mesh {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .bg-mesh::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        radial-gradient(circle at 20% 20%, rgba(99,102,241,0.12) 0%, transparent 50%),
+        radial-gradient(circle at 80% 80%, rgba(167,139,250,0.10) 0%, transparent 50%),
+        radial-gradient(circle at 60% 10%, rgba(56,189,248,0.07) 0%, transparent 45%);
+      animation: meshDrift 18s ease-in-out infinite alternate;
+    }
+    .bg-mesh::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.022) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 30%, transparent 100%);
+    }
+    @keyframes meshDrift {
+      0%   { transform: translate(0,0) scale(1); }
+      50%  { transform: translate(-20px, 30px) scale(1.04); }
+      100% { transform: translate(20px, -20px) scale(0.97); }
+    }
+
+    /* ── Layout wrapper ── */
+    .page-content { position: relative; z-index: 1; }
+
+    /* ── Glass panel ── */
+    .panel {
+      background: rgba(255,255,255,0.028);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 18px;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      box-shadow:
+        0 1px 0 0 rgba(255,255,255,0.05) inset,
+        0 24px 48px rgba(0,0,0,0.45),
+        0 2px 8px rgba(0,0,0,0.3);
+      transition: box-shadow 0.3s ease, border-color 0.3s ease, transform 0.3s ease;
+    }
+    .panel:hover {
+      border-color: rgba(255,255,255,0.11);
+      box-shadow:
+        0 1px 0 0 rgba(255,255,255,0.07) inset,
+        0 28px 56px rgba(0,0,0,0.5),
+        0 0 0 1px rgba(99,102,241,0.12),
+        0 2px 8px rgba(0,0,0,0.3);
+      transform: translateY(-1px);
+    }
+
+    /* ── Panel fade-in on load ── */
+    .panel-fadein {
+      opacity: 0;
+      transform: translateY(12px);
+      animation: panelIn 0.55s ease forwards;
+    }
+    .panel-fadein:nth-child(1) { animation-delay: 0.05s; }
+    .panel-fadein:nth-child(2) { animation-delay: 0.15s; }
+    .panel-fadein:nth-child(3) { animation-delay: 0.25s; }
+    @keyframes panelIn {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Gradient text ── */
+    .gradient-text {
+      background: linear-gradient(135deg, #818cf8 0%, #a78bfa 45%, #38bdf8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* ── Hero orb ── */
+    .hero-orb {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -55%);
+      width: 520px;
+      height: 260px;
+      border-radius: 50%;
+      background: radial-gradient(ellipse, rgba(99,102,241,0.18) 0%, rgba(167,139,250,0.10) 40%, transparent 70%);
+      filter: blur(40px);
+      animation: orbPulse 6s ease-in-out infinite alternate;
+      pointer-events: none;
+    }
+    @keyframes orbPulse {
+      0%   { opacity: 0.7; transform: translate(-50%, -55%) scale(1); }
+      100% { opacity: 1;   transform: translate(-50%, -58%) scale(1.08); }
+    }
+
+    /* ── Badge shimmer ── */
+    .badge-shimmer {
+      position: relative;
+      overflow: hidden;
+    }
+    .badge-shimmer::after {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%;
+      width: 60%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+      animation: shimmerBadge 3s ease-in-out infinite;
+    }
+    @keyframes shimmerBadge {
+      0%   { left: -60%; }
+      60%  { left: 110%; }
+      100% { left: 110%; }
+    }
+
+    /* ── Monospace ── */
+    .code { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; }
+
+    /* ── Log entries ── */
+    .log-entry {
+      border-left: 2px solid transparent;
+      animation: slideInLog 0.22s ease forwards;
+      opacity: 0;
+    }
+    @keyframes slideInLog {
+      from { opacity: 0; transform: translateX(-6px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    .log-entry.info    { border-color: #6366f1; background: rgba(99,102,241,0.06); }
+    .log-entry.ws      { border-color: #a78bfa; background: rgba(167,139,250,0.06); }
+    .log-entry.success { border-color: #10b981; background: rgba(16,185,129,0.07); }
+    .log-entry.error   { border-color: #f43f5e; background: rgba(244,63,94,0.07); }
+    .log-entry.warn    { border-color: #f59e0b; background: rgba(245,158,11,0.06); }
+
+    /* ── Progress bar ── */
+    .progress-bar {
+      height: 5px;
+      border-radius: 9999px;
+      background: rgba(255,255,255,0.05);
+      overflow: visible;
+      position: relative;
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 9999px;
+      background: linear-gradient(90deg, #6366f1, #a78bfa, #38bdf8);
+      background-size: 200% 100%;
+      transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      box-shadow: 0 0 12px rgba(99,102,241,0.7), 0 0 24px rgba(167,139,250,0.4);
+      animation: progressShimmer 2s linear infinite;
+    }
+    .progress-fill::after {
+      content: '';
+      position: absolute;
+      right: -1px;
+      top: -3px;
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: #c4b5fd;
+      box-shadow: 0 0 8px 3px rgba(196,181,253,0.6);
+      transition: opacity 0.3s;
+    }
+    @keyframes progressShimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* ── Status dot with ring pulse ── */
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      position: relative;
+    }
+    .status-PENDING {
+      background: #818cf8;
+      box-shadow: 0 0 0 0 rgba(129,140,248,0.6);
+      animation: ringPulse 2s infinite;
+    }
+    .status-PROCESSING {
+      background: #f59e0b;
+      box-shadow: 0 0 0 0 rgba(245,158,11,0.6);
+      animation: ringPulse 1s infinite;
+    }
+    .status-COMPLETED { background: #10b981; box-shadow: 0 0 6px rgba(16,185,129,0.5); }
+    .status-FAILED    { background: #f43f5e; box-shadow: 0 0 6px rgba(244,63,94,0.5); }
+    .status-IDLE      { background: #475569; }
+    @keyframes ringPulse {
+      0%   { box-shadow: 0 0 0 0 currentColor; }
+      70%  { box-shadow: 0 0 0 6px rgba(0,0,0,0); }
+      100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+    }
+
+    /* ── API method badges ── */
+    .api-method {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      padding: 2px 7px;
+      border-radius: 5px;
+    }
+    .method-POST   { background: rgba(16,185,129,0.14); color: #34d399; border: 1px solid rgba(16,185,129,0.2); }
+    .method-GET    { background: rgba(56,189,248,0.14); color: #38bdf8; border: 1px solid rgba(56,189,248,0.2); }
+    .method-WS     { background: rgba(167,139,250,0.14); color: #c4b5fd; border: 1px solid rgba(167,139,250,0.2); }
+    .method-STATUS { background: rgba(245,158,11,0.14); color: #fbbf24; border: 1px solid rgba(245,158,11,0.2); }
+
+    /* ── Focus states ── */
+    textarea, select, input[type="text"] {
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    textarea:focus, select:focus, input:focus {
+      outline: none;
+      border-color: rgba(99,102,241,0.7) !important;
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.15), 0 1px 3px rgba(0,0,0,0.3) inset;
+    }
+    textarea::placeholder { color: rgba(148,163,184,0.35); }
+    select option { background: #111122; color: #dde3ef; }
+
+    /* ── Primary button with sweep ── */
+    .btn-primary {
+      background: linear-gradient(135deg, #4f52d8, #7c3aed);
+      position: relative;
+      overflow: hidden;
+      transition: opacity 0.2s, box-shadow 0.3s, transform 0.15s;
+      box-shadow: 0 4px 20px rgba(99,102,241,0.35);
+    }
+    .btn-primary::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 60%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
+      transition: left 0.45s ease;
+    }
+    .btn-primary:hover:not(:disabled)::before { left: 140%; }
+    .btn-primary:hover:not(:disabled) {
+      box-shadow: 0 6px 28px rgba(99,102,241,0.5);
+      transform: translateY(-1px);
+    }
+    .btn-primary:active:not(:disabled) { transform: translateY(0); }
+    .btn-primary:disabled {
+      opacity: 0.38;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    /* ── Button spinner ── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .btn-spinner {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    .btn-primary:disabled .btn-spinner { display: block; }
+    .btn-primary:disabled .btn-icon    { display: none; }
+
+    /* ── Pipeline steps / timeline ── */
+    #pipeline-steps { position: relative; padding-left: 0; }
+    .step { position: relative; padding-left: 0; }
+    .step + .step .step-connector {
+      display: block;
+      position: absolute;
+      left: 9px;
+      top: -10px;
+      width: 1px;
+      height: 10px;
+      background: rgba(255,255,255,0.06);
+      z-index: 0;
+    }
+    .step-connector-line {
+      position: absolute;
+      left: 9px;
+      top: 0;
+      width: 1px;
+      bottom: 0;
+      background: rgba(255,255,255,0.05);
+    }
+
+    /* ── Video result card ── */
+    .video-card {
+      background: rgba(14,14,30,0.7);
+      border: 1px solid rgba(99,102,241,0.25);
+      border-radius: 18px;
+      backdrop-filter: blur(18px);
+      box-shadow: 0 0 0 1px rgba(99,102,241,0.08) inset, 0 24px 48px rgba(0,0,0,0.5);
+    }
+
+    /* ── Video thumbnail stars ── */
+    .star-field {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      border-radius: inherit;
+    }
+    .star {
+      position: absolute;
+      width: 1.5px;
+      height: 1.5px;
+      background: white;
+      border-radius: 50%;
+      animation: starTwinkle var(--dur, 3s) ease-in-out infinite var(--delay, 0s);
+    }
+    @keyframes starTwinkle {
+      0%,100% { opacity: 0.15; }
+      50%      { opacity: 0.8; }
+    }
+
+    /* ── Play button hover ── */
+    .play-btn {
+      transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+    }
+    .play-btn:hover {
+      transform: scale(1.12);
+      background: rgba(255,255,255,0.12) !important;
+      box-shadow: 0 0 24px rgba(255,255,255,0.15);
+    }
+
+    /* ── Section labels ── */
+    .section-label {
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(148,163,184,0.7);
+    }
+
+    /* ── Status pill ── */
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 10px 2px 6px;
+      border-radius: 9999px;
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+
+    /* ── JSON syntax ── */
+    .json-key  { color: #c4b5fd; }
+    .json-str  { color: #86efac; }
+    .json-num  { color: #93c5fd; }
+    .json-bool { color: #fbbf24; }
+    .json-null { color: #64748b; }
+
+    /* ── Custom scrollbar ── */
+    ::-webkit-scrollbar { width: 3px; height: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(99,102,241,0.3);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,0.5); }
+
+    /* ── Nav ── */
+    .nav-root {
+      background: rgba(5,5,13,0.82);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255,255,255,0.055);
+    }
+    .nav-back:hover { color: #fff; }
+    .nav-divider { color: rgba(255,255,255,0.15); }
+
+    /* ── Radio toggles ── */
+    .toggle-radio {
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      border: 2px solid rgba(99,102,241,0.5);
+      display: flex; align-items: center; justify-content: center;
+      transition: border-color 0.2s;
+    }
+    .toggle-radio-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      transition: opacity 0.15s, transform 0.15s;
+    }
+
+    /* ── Explainer cards ── */
+    .explainer-card {
+      background: rgba(255,255,255,0.025);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 14px;
+      padding: 20px 24px;
+      backdrop-filter: blur(12px);
+      transition: border-color 0.25s, transform 0.25s;
+    }
+    .explainer-card:hover {
+      border-color: rgba(255,255,255,0.12);
+      transform: translateY(-2px);
+    }
+
+    /* ── Responsive stacking ── */
+    @media (max-width: 768px) {
+      .hero-orb { width: 300px; height: 150px; }
+    }
   </style>
 </head>
 <body class="font-sans antialiased min-h-screen">
 
-  <!-- NAV -->
-  <nav class="sticky top-0 z-50 backdrop-blur-md border-b border-white/5" style="background:rgba(10,10,15,0.9)">
-    <div class="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <a href="index.html" class="text-slate-400 hover:text-white transition-colors text-sm flex items-center gap-1">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-          홈
-        </a>
-        <span class="text-white/20">/</span>
-        <span class="text-white text-sm font-semibold">Interactive Demo</span>
-      </div>
-      <div class="flex items-center gap-3">
-        <span id="ws-indicator" class="flex items-center gap-2 text-xs text-slate-500">
-          <span class="status-dot status-IDLE"></span>
-          WebSocket
-        </span>
-        <a href="https://github.com/asidian1983/ai_gen_video" target="_blank"
-           class="text-xs text-slate-400 hover:text-white transition-colors px-3 py-1.5 border border-white/10 rounded-lg">
-          GitHub
-        </a>
-      </div>
-    </div>
-  </nav>
+  <!-- Animated background -->
+  <div class="bg-mesh" aria-hidden="true"></div>
 
-  <!-- HEADER -->
-  <div class="text-center pt-12 pb-8 px-6">
-    <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-indigo-500/20 bg-indigo-500/10 text-indigo-300 text-xs mb-4">
-      <span class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
-      Simulated Backend — Fake API · No Real Server Required
-    </div>
-    <h1 class="text-3xl md:text-4xl font-black text-white mb-3">
-      AI Video Generation <span class="gradient-text">Live Demo</span>
-    </h1>
-    <p class="text-slate-400 text-sm max-w-xl mx-auto">
-      실제 백엔드 API의 전체 흐름을 브라우저에서 시뮬레이션합니다.
-      BullMQ 잡 큐, WebSocket 실시간 push, DLQ 재처리까지 체험해보세요.
-    </p>
-  </div>
+  <div class="page-content">
 
-  <!-- MAIN GRID -->
-  <div class="max-w-7xl mx-auto px-4 pb-16 grid lg:grid-cols-3 gap-4">
-
-    <!-- ── LEFT: INPUT ── -->
-    <div class="space-y-4">
-      <!-- Form -->
-      <div class="panel p-5">
-        <h2 class="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-          <svg class="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-          POST /videos — 영상 생성 요청
-        </h2>
-
-        <div class="space-y-3">
-          <div>
-            <label class="text-xs text-slate-400 mb-1.5 block">Prompt <span class="text-red-400">*</span></label>
-            <textarea id="prompt" rows="4" placeholder="A cinematic aerial shot of a futuristic city at sunset, neon lights reflecting on glass towers..."
-              class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-slate-200 placeholder-slate-600 resize-none"
-            ></textarea>
+    <!-- ── NAV ── -->
+    <nav class="nav-root sticky top-0 z-50">
+      <div class="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <a href="index.html" class="nav-back text-slate-400 transition-colors text-sm flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+            </svg>
+            홈
+          </a>
+          <span class="nav-divider">/</span>
+          <div class="flex items-center gap-2">
+            <!-- Logo mark -->
+            <div class="w-5 h-5 rounded-md flex items-center justify-center" style="background:linear-gradient(135deg,#6366f1,#a78bfa)">
+              <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            </div>
+            <span class="text-white text-sm font-semibold tracking-tight">Interactive Demo</span>
           </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="ws-indicator" class="flex items-center gap-2 text-xs text-slate-500">
+            <span class="status-dot status-IDLE"></span>
+            WebSocket
+          </span>
+          <a href="https://github.com/asidian1983/ai_gen_video" target="_blank"
+             class="text-xs text-slate-400 hover:text-white transition-colors px-3 py-1.5 border border-white/10 hover:border-white/20 rounded-lg backdrop-blur-sm">
+            GitHub
+          </a>
+        </div>
+      </div>
+    </nav>
 
-          <div class="grid grid-cols-2 gap-3">
+    <!-- ── HEADER ── -->
+    <div class="text-center pt-14 pb-10 px-6 relative overflow-hidden">
+      <div class="hero-orb" aria-hidden="true"></div>
+      <div class="relative z-10">
+        <div class="badge-shimmer inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-indigo-500/25 bg-indigo-500/10 text-indigo-300 text-xs mb-5 font-medium">
+          <span class="w-1.5 h-1.5 rounded-full bg-indigo-400" style="box-shadow:0 0 6px rgba(129,140,248,0.8); animation: ringPulse 2s infinite;"></span>
+          Simulated Backend — Fake API · No Real Server Required
+        </div>
+        <h1 class="text-3xl md:text-4xl font-extrabold text-white mb-3 tracking-tight">
+          AI Video Generation <span class="gradient-text">Live Demo</span>
+        </h1>
+        <p class="text-slate-400 text-sm max-w-lg mx-auto leading-relaxed">
+          실제 백엔드 API의 전체 흐름을 브라우저에서 시뮬레이션합니다.
+          BullMQ 잡 큐, WebSocket 실시간 push, DLQ 재처리까지 체험해보세요.
+        </p>
+      </div>
+    </div>
+
+    <!-- ── MAIN GRID ── -->
+    <div class="max-w-7xl mx-auto px-4 pb-20 grid lg:grid-cols-3 gap-5">
+
+      <!-- ── LEFT: INPUT ── -->
+      <div class="space-y-4">
+
+        <!-- Form panel -->
+        <div class="panel p-5 panel-fadein">
+          <h2 class="text-xs font-semibold text-white mb-4 flex items-center gap-2">
+            <span class="section-label">POST /videos</span>
+            <span class="text-slate-600 font-normal">— 영상 생성 요청</span>
+          </h2>
+
+          <div class="space-y-3.5">
+            <!-- Prompt -->
             <div>
-              <label class="text-xs text-slate-400 mb-1.5 block">Resolution</label>
-              <select id="resolution" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200">
-                <option value="1920x1080">1920×1080 (FHD)</option>
-                <option value="1280x720" selected>1280×720 (HD)</option>
-                <option value="512x512">512×512 (Square)</option>
-              </select>
+              <label class="section-label block mb-1.5">Prompt <span class="text-rose-400 normal-case" style="font-size:10px;">*</span></label>
+              <textarea id="prompt" rows="4"
+                placeholder="A cinematic aerial shot of a futuristic city at sunset, neon lights reflecting on glass towers..."
+                class="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-slate-200 resize-none transition-all"
+                style="box-shadow: 0 1px 3px rgba(0,0,0,0.3) inset;"
+              ></textarea>
+            </div>
+
+            <!-- Resolution + FPS -->
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="section-label block mb-1.5">Resolution</label>
+                <select id="resolution"
+                  class="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-slate-200 transition-all appearance-none cursor-pointer"
+                  style="box-shadow: 0 1px 3px rgba(0,0,0,0.3) inset;">
+                  <option value="1920x1080">1920×1080 (FHD)</option>
+                  <option value="1280x720" selected>1280×720 (HD)</option>
+                  <option value="512x512">512×512 (Square)</option>
+                </select>
+              </div>
+              <div>
+                <label class="section-label block mb-1.5">FPS</label>
+                <select id="fps"
+                  class="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-slate-200 transition-all appearance-none cursor-pointer"
+                  style="box-shadow: 0 1px 3px rgba(0,0,0,0.3) inset;">
+                  <option value="24" selected>24 fps</option>
+                  <option value="30">30 fps</option>
+                  <option value="60">60 fps</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Duration slider -->
+            <div>
+              <div class="flex justify-between mb-1.5">
+                <label class="section-label">Duration</label>
+                <span id="duration-label" class="text-xs font-semibold text-indigo-300 code">5s</span>
+              </div>
+              <input id="duration" type="range" min="3" max="15" value="5"
+                class="w-full accent-indigo-500 cursor-pointer" style="height:3px;" />
+            </div>
+
+            <!-- Scenario toggles -->
+            <div class="border-t border-white/[0.05] pt-3.5 space-y-2.5">
+              <p class="section-label mb-2">Simulation Scenario</p>
+
+              <label class="flex items-center gap-3 cursor-pointer group">
+                <div class="relative flex-shrink-0">
+                  <input type="radio" name="scenario" id="sc-success" value="success" checked class="sr-only" />
+                  <div class="toggle-radio" style="border-color:#6366f1">
+                    <div class="toggle-radio-dot bg-indigo-500"></div>
+                  </div>
+                </div>
+                <div>
+                  <span class="text-sm text-slate-200 font-medium">정상 처리</span>
+                  <span class="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/12 text-emerald-400 border border-emerald-500/20">COMPLETED</span>
+                </div>
+              </label>
+
+              <label class="flex items-center gap-3 cursor-pointer group">
+                <div class="relative flex-shrink-0">
+                  <input type="radio" name="scenario" id="sc-retry" value="retry" class="sr-only" />
+                  <div class="toggle-radio" style="border-color:rgba(148,163,184,0.3)">
+                    <div class="toggle-radio-dot bg-amber-500" style="opacity:0;transform:scale(0)"></div>
+                  </div>
+                </div>
+                <div>
+                  <span class="text-sm text-slate-300">2차 재시도 후 성공</span>
+                  <span class="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/12 text-amber-400 border border-amber-500/20">RETRY</span>
+                </div>
+              </label>
+
+              <label class="flex items-center gap-3 cursor-pointer group">
+                <div class="relative flex-shrink-0">
+                  <input type="radio" name="scenario" id="sc-fail" value="fail" class="sr-only" />
+                  <div class="toggle-radio" style="border-color:rgba(148,163,184,0.3)">
+                    <div class="toggle-radio-dot bg-rose-500" style="opacity:0;transform:scale(0)"></div>
+                  </div>
+                </div>
+                <div>
+                  <span class="text-sm text-slate-300">영구 실패 → DLQ 저장</span>
+                  <span class="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/12 text-rose-400 border border-rose-500/20">DLQ</span>
+                </div>
+              </label>
+            </div>
+
+            <!-- Generate button -->
+            <button id="submit-btn" onclick="startDemo()"
+              class="btn-primary w-full py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2">
+              <svg class="btn-icon w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+              </svg>
+              <div class="btn-spinner"></div>
+              Generate Video
+            </button>
+
+            <button id="reset-btn" onclick="resetDemo()"
+              class="hidden w-full py-2.5 rounded-xl text-xs font-semibold text-slate-400 border border-white/[0.07] hover:border-white/20 hover:text-white transition-all">
+              Reset Demo
+            </button>
+          </div>
+        </div>
+
+        <!-- Rate Limit -->
+        <div class="panel p-4 panel-fadein">
+          <h3 class="section-label mb-3 flex items-center gap-2">
+            <svg class="w-3.5 h-3.5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+            </svg>
+            3-tier Rate Limiting
+          </h3>
+          <div class="space-y-3">
+            <div>
+              <div class="flex justify-between mb-1.5">
+                <span class="text-xs text-slate-500">burst <span class="text-slate-600">(3/10s)</span></span>
+                <span id="burst-count" class="code text-xs text-slate-300">0/3</span>
+              </div>
+              <div class="progress-bar">
+                <div id="burst-bar" class="progress-fill" style="width:0%;background:linear-gradient(90deg,#6366f1,#a78bfa);box-shadow:0 0 10px rgba(99,102,241,0.6)"></div>
+              </div>
             </div>
             <div>
-              <label class="text-xs text-slate-400 mb-1.5 block">FPS</label>
-              <select id="fps" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200">
-                <option value="24" selected>24 fps</option>
-                <option value="30">30 fps</option>
-                <option value="60">60 fps</option>
-              </select>
+              <div class="flex justify-between mb-1.5">
+                <span class="text-xs text-slate-500">sustained <span class="text-slate-600">(10/h)</span></span>
+                <span id="sustained-count" class="code text-xs text-slate-300">0/10</span>
+              </div>
+              <div class="progress-bar">
+                <div id="sustained-bar" class="progress-fill" style="width:0%;background:linear-gradient(90deg,#6366f1,#38bdf8);box-shadow:0 0 10px rgba(99,102,241,0.6)"></div>
+              </div>
+            </div>
+          </div>
+          <p class="text-xs text-slate-600 mt-3 code">POST /videos — burst: 3/10s, sustained: 10/h</p>
+        </div>
+
+        <!-- DLQ Panel -->
+        <div class="panel p-4 panel-fadein" id="dlq-panel">
+          <h3 class="section-label mb-3 flex items-center gap-2">
+            <svg class="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+            </svg>
+            Dead Letter Queue
+          </h3>
+          <div id="dlq-list" class="space-y-2 text-xs text-slate-500 italic">
+            영구 실패 잡 없음
+          </div>
+        </div>
+      </div>
+
+      <!-- ── CENTER: LIVE STATUS ── -->
+      <div class="space-y-4">
+
+        <!-- Job Status -->
+        <div class="panel p-5 panel-fadein">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xs font-semibold text-white flex items-center gap-2 section-label">
+              <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+              </svg>
+              Job Status
+            </h2>
+            <div class="flex items-center gap-2">
+              <span id="status-dot" class="status-dot status-IDLE"></span>
+              <span id="status-text" class="code text-xs text-slate-400 font-medium">IDLE</span>
             </div>
           </div>
 
-          <div>
-            <label class="text-xs text-slate-400 mb-1.5 block">Duration: <span id="duration-label" class="text-white">5s</span></label>
-            <input id="duration" type="range" min="3" max="15" value="5" class="w-full accent-indigo-500" />
-          </div>
-
-          <!-- Scenario toggles -->
-          <div class="border-t border-white/5 pt-3 space-y-2">
-            <p class="text-xs text-slate-500 mb-2">Simulation Scenario</p>
-            <label class="flex items-center gap-3 cursor-pointer">
-              <div class="relative">
-                <input type="radio" name="scenario" id="sc-success" value="success" checked class="sr-only" />
-                <div class="toggle-radio w-4 h-4 rounded-full border-2 border-indigo-500 flex items-center justify-center">
-                  <div class="w-2 h-2 rounded-full bg-indigo-500 hidden"></div>
-                </div>
-              </div>
-              <span class="text-sm text-slate-300">정상 처리 (COMPLETED)</span>
-            </label>
-            <label class="flex items-center gap-3 cursor-pointer">
-              <div class="relative">
-                <input type="radio" name="scenario" id="sc-retry" value="retry" class="sr-only" />
-                <div class="toggle-radio w-4 h-4 rounded-full border-2 border-slate-600 flex items-center justify-center">
-                  <div class="w-2 h-2 rounded-full bg-amber-500 hidden"></div>
-                </div>
-              </div>
-              <span class="text-sm text-slate-300">2차 재시도 후 성공</span>
-            </label>
-            <label class="flex items-center gap-3 cursor-pointer">
-              <div class="relative">
-                <input type="radio" name="scenario" id="sc-fail" value="fail" class="sr-only" />
-                <div class="toggle-radio w-4 h-4 rounded-full border-2 border-slate-600 flex items-center justify-center">
-                  <div class="w-2 h-2 rounded-full bg-red-500 hidden"></div>
-                </div>
-              </div>
-              <span class="text-sm text-slate-300">영구 실패 → DLQ 저장</span>
-            </label>
-          </div>
-
-          <button id="submit-btn" onclick="startDemo()"
-            class="btn-primary w-full py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-            Generate Video
-          </button>
-          <button id="reset-btn" onclick="resetDemo()" class="w-full py-2.5 rounded-xl text-xs font-medium text-slate-400 border border-white/5 hover:border-white/20 hover:text-white transition-all hidden">
-            Reset
-          </button>
-        </div>
-      </div>
-
-      <!-- Rate Limit indicator -->
-      <div class="panel p-4">
-        <h3 class="text-xs font-semibold text-slate-400 mb-3 flex items-center gap-2">
-          <svg class="w-3.5 h-3.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
-          3-tier Rate Limiting
-        </h3>
-        <div class="space-y-2.5">
-          <div>
-            <div class="flex justify-between text-xs mb-1">
-              <span class="text-slate-500">burst <span class="text-slate-600">(3/10s)</span></span>
-              <span id="burst-count" class="text-slate-300">0/3</span>
-            </div>
-            <div class="progress-bar"><div id="burst-bar" class="progress-fill" style="width:0%;background:linear-gradient(90deg,#6366f1,#a78bfa)"></div></div>
-          </div>
-          <div>
-            <div class="flex justify-between text-xs mb-1">
-              <span class="text-slate-500">sustained <span class="text-slate-600">(10/h)</span></span>
-              <span id="sustained-count" class="text-slate-300">0/10</span>
-            </div>
-            <div class="progress-bar"><div id="sustained-bar" class="progress-fill" style="width:0%;background:linear-gradient(90deg,#6366f1,#38bdf8)"></div></div>
-          </div>
-        </div>
-        <p class="text-xs text-slate-600 mt-3">POST /videos — burst: 3/10s, sustained: 10/h</p>
-      </div>
-
-      <!-- DLQ Panel -->
-      <div class="panel p-4" id="dlq-panel">
-        <h3 class="text-xs font-semibold text-slate-400 mb-3 flex items-center gap-2">
-          <svg class="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-          Dead Letter Queue
-        </h3>
-        <div id="dlq-list" class="space-y-2 text-xs text-slate-500 italic">
-          영구 실패 잡 없음
-        </div>
-      </div>
-    </div>
-
-    <!-- ── CENTER: LIVE STATUS ── -->
-    <div class="space-y-4">
-      <!-- Job Status -->
-      <div class="panel p-5">
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-sm font-semibold text-white">Job Status</h2>
-          <div class="flex items-center gap-2 text-xs">
-            <span id="status-dot" class="status-dot status-IDLE"></span>
-            <span id="status-text" class="text-slate-400">IDLE</span>
-          </div>
-        </div>
-
-        <!-- IDs -->
-        <div class="space-y-2 mb-4">
-          <div class="flex items-center gap-2 text-xs">
-            <span class="text-slate-600 w-20">videoId</span>
-            <span id="video-id" class="code text-slate-400 truncate">—</span>
-          </div>
-          <div class="flex items-center gap-2 text-xs">
-            <span class="text-slate-600 w-20">jobId</span>
-            <span id="job-id" class="code text-slate-400">—</span>
-          </div>
-          <div class="flex items-center gap-2 text-xs">
-            <span class="text-slate-600 w-20">attempt</span>
-            <span id="attempt-text" class="code text-slate-400">—</span>
-          </div>
-        </div>
-
-        <!-- Progress -->
-        <div class="mb-1 flex justify-between text-xs">
-          <span class="text-slate-500" id="progress-msg">대기 중...</span>
-          <span class="text-indigo-400 font-semibold" id="progress-pct">0%</span>
-        </div>
-        <div class="progress-bar mb-5">
-          <div id="progress-fill" class="progress-fill" style="width:0%"></div>
-        </div>
-
-        <!-- Pipeline steps -->
-        <div class="space-y-2" id="pipeline-steps">
-          <div class="step flex items-center gap-2.5 text-xs" data-step="queued">
-            <div class="step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600">1</div>
-            <span class="text-slate-500">큐 등록 (BullMQ)</span>
-          </div>
-          <div class="step flex items-center gap-2.5 text-xs" data-step="processing">
-            <div class="step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600">2</div>
-            <span class="text-slate-500">Worker 처리 시작 (Optimistic Lock)</span>
-          </div>
-          <div class="step flex items-center gap-2.5 text-xs" data-step="prompt">
-            <div class="step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600">3</div>
-            <span class="text-slate-500">GPT-4o Prompt 향상</span>
-          </div>
-          <div class="step flex items-center gap-2.5 text-xs" data-step="ai">
-            <div class="step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600">4</div>
-            <span class="text-slate-500">AI Provider 제출 + 폴링</span>
-          </div>
-          <div class="step flex items-center gap-2.5 text-xs" data-step="upload">
-            <div class="step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600">5</div>
-            <span class="text-slate-500">S3 업로드</span>
-          </div>
-          <div class="step flex items-center gap-2.5 text-xs" data-step="done">
-            <div class="step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600">6</div>
-            <span class="text-slate-500">완료 (Presigned URL 발급)</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- WebSocket Event Stream -->
-      <div class="panel p-5">
-        <h2 class="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-          <svg class="w-4 h-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-          WebSocket Events
-          <span class="text-xs text-slate-600 font-normal">/video-status namespace</span>
-        </h2>
-        <div id="ws-log" class="space-y-1.5 max-h-52 overflow-y-auto code text-xs">
-          <div class="text-slate-600 italic">이벤트 대기 중...</div>
-        </div>
-      </div>
-
-      <!-- Result -->
-      <div id="result-panel" class="hidden">
-        <div class="video-card p-5">
-          <div class="flex items-center gap-2 mb-3">
-            <svg class="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            <span class="text-sm font-semibold text-emerald-400">영상 생성 완료!</span>
-          </div>
-          <!-- Fake video thumbnail -->
-          <div class="rounded-xl overflow-hidden mb-3 relative" style="aspect-ratio:16/9;background:linear-gradient(135deg,#0f0c29,#302b63,#24243e)">
-            <div class="absolute inset-0 flex flex-col items-center justify-center gap-2">
-              <div class="w-14 h-14 rounded-full border-2 border-white/20 flex items-center justify-center backdrop-blur-sm" style="background:rgba(255,255,255,0.05)">
-                <svg class="w-7 h-7 text-white ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-              </div>
-              <span class="text-white/60 text-xs" id="result-duration"></span>
-            </div>
-            <div class="absolute bottom-2 right-2 text-xs text-white/40 code" id="result-resolution"></div>
-          </div>
-          <div class="space-y-2">
+          <!-- IDs -->
+          <div class="space-y-2 mb-4 p-3 rounded-xl" style="background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.04)">
             <div class="flex items-center gap-2 text-xs">
-              <span class="text-slate-500">videoUrl</span>
-              <span id="result-url" class="code text-indigo-300 truncate"></span>
+              <span class="text-slate-600 w-16 flex-shrink-0 section-label" style="font-size:8.5px">videoId</span>
+              <span id="video-id" class="code text-slate-400 truncate">—</span>
             </div>
-            <div class="flex items-center gap-2 text-xs">
-              <span class="text-slate-500">Presigned URL</span>
-              <span class="code text-emerald-300 truncate">https://ai-gen-video-storage.s3.amazonaws.com/videos/...</span>
+            <div class="flex items-center gap-2 text-xs border-t border-white/[0.04] pt-2">
+              <span class="text-slate-600 w-16 flex-shrink-0 section-label" style="font-size:8.5px">jobId</span>
+              <span id="job-id" class="code text-slate-400">—</span>
             </div>
-            <div class="flex items-center gap-2 text-xs">
-              <span class="text-slate-500">expires</span>
-              <span class="text-slate-400">24시간</span>
+            <div class="flex items-center gap-2 text-xs border-t border-white/[0.04] pt-2">
+              <span class="text-slate-600 w-16 flex-shrink-0 section-label" style="font-size:8.5px">attempt</span>
+              <span id="attempt-text" class="code text-slate-400">—</span>
             </div>
           </div>
-          <button class="mt-4 w-full py-2.5 rounded-lg text-xs font-semibold text-white border border-emerald-500/30 hover:bg-emerald-500/10 transition-colors">
-            GET /videos/:id/result — Presigned URL 발급 →
-          </button>
+
+          <!-- Progress -->
+          <div class="mb-1.5 flex justify-between text-xs">
+            <span class="text-slate-500 text-xs" id="progress-msg">대기 중...</span>
+            <span class="code text-indigo-400 font-bold text-xs" id="progress-pct">0%</span>
+          </div>
+          <div class="progress-bar mb-5">
+            <div id="progress-fill" class="progress-fill" style="width:0%"></div>
+          </div>
+
+          <!-- Pipeline steps — vertical timeline -->
+          <div class="section-label mb-3">Pipeline</div>
+          <div class="relative" id="pipeline-steps">
+            <!-- Connecting line -->
+            <div class="absolute left-[9px] top-3 bottom-3 w-px" style="background:rgba(255,255,255,0.05)" aria-hidden="true"></div>
+
+            <div class="step flex items-center gap-3 text-xs mb-2.5 relative" data-step="queued">
+              <div class="step-icon w-[19px] h-[19px] rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 code text-slate-600 z-10" style="background:#05050d;font-size:9px">1</div>
+              <span class="text-slate-500">큐 등록 (BullMQ)</span>
+            </div>
+            <div class="step flex items-center gap-3 text-xs mb-2.5 relative" data-step="processing">
+              <div class="step-icon w-[19px] h-[19px] rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 code text-slate-600 z-10" style="background:#05050d;font-size:9px">2</div>
+              <span class="text-slate-500">Worker 처리 시작 (Optimistic Lock)</span>
+            </div>
+            <div class="step flex items-center gap-3 text-xs mb-2.5 relative" data-step="prompt">
+              <div class="step-icon w-[19px] h-[19px] rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 code text-slate-600 z-10" style="background:#05050d;font-size:9px">3</div>
+              <span class="text-slate-500">GPT-4o Prompt 향상</span>
+            </div>
+            <div class="step flex items-center gap-3 text-xs mb-2.5 relative" data-step="ai">
+              <div class="step-icon w-[19px] h-[19px] rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 code text-slate-600 z-10" style="background:#05050d;font-size:9px">4</div>
+              <span class="text-slate-500">AI Provider 제출 + 폴링</span>
+            </div>
+            <div class="step flex items-center gap-3 text-xs mb-2.5 relative" data-step="upload">
+              <div class="step-icon w-[19px] h-[19px] rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 code text-slate-600 z-10" style="background:#05050d;font-size:9px">5</div>
+              <span class="text-slate-500">S3 업로드</span>
+            </div>
+            <div class="step flex items-center gap-3 text-xs relative" data-step="done">
+              <div class="step-icon w-[19px] h-[19px] rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 code text-slate-600 z-10" style="background:#05050d;font-size:9px">6</div>
+              <span class="text-slate-500">완료 (Presigned URL 발급)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- WebSocket Event Stream -->
+        <div class="panel p-5 panel-fadein">
+          <h2 class="section-label mb-3 flex items-center gap-2">
+            <svg class="w-3.5 h-3.5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            </svg>
+            WebSocket Events
+            <span class="code text-slate-600 font-normal normal-case text-xs ml-1">/video-status</span>
+          </h2>
+          <div id="ws-log" class="space-y-1.5 max-h-52 overflow-y-auto code text-xs pr-1">
+            <div class="text-slate-600 italic" style="animation:none;opacity:1">이벤트 대기 중...</div>
+          </div>
+        </div>
+
+        <!-- Result panel -->
+        <div id="result-panel" class="hidden">
+          <div class="video-card p-5">
+            <div class="flex items-center gap-2 mb-3">
+              <div class="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center flex-shrink-0">
+                <svg class="w-3 h-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                </svg>
+              </div>
+              <span class="text-sm font-semibold text-emerald-400">영상 생성 완료!</span>
+              <span class="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/12 text-emerald-400 border border-emerald-500/20">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400" style="box-shadow:0 0 4px rgba(52,211,153,0.8)"></span>
+                COMPLETED
+              </span>
+            </div>
+
+            <!-- Fake video thumbnail with stars -->
+            <div class="rounded-xl overflow-hidden mb-4 relative" style="aspect-ratio:16/9;background:linear-gradient(135deg,#080614 0%,#0f0a2e 40%,#180a2a 70%,#08121f 100%)">
+              <!-- Stars -->
+              <div class="star-field" id="star-field" aria-hidden="true"></div>
+              <!-- Subtle light beams -->
+              <div style="position:absolute;inset:0;background:radial-gradient(ellipse 60% 40% at 30% 60%, rgba(99,102,241,0.12) 0%, transparent 70%), radial-gradient(ellipse 40% 30% at 70% 30%, rgba(167,139,250,0.09) 0%, transparent 70%)"></div>
+              <!-- Play button -->
+              <div class="absolute inset-0 flex flex-col items-center justify-center gap-2.5">
+                <div class="play-btn w-14 h-14 rounded-full border border-white/20 flex items-center justify-center cursor-pointer" style="background:rgba(255,255,255,0.06); backdrop-filter:blur(8px)">
+                  <svg class="w-6 h-6 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                </div>
+                <span class="text-white/50 text-xs code" id="result-duration"></span>
+              </div>
+              <div class="absolute bottom-2.5 right-3 code text-xs text-white/30" id="result-resolution"></div>
+            </div>
+
+            <div class="space-y-2 p-3 rounded-xl mb-4" style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.04)">
+              <div class="flex items-center gap-2 text-xs">
+                <span class="section-label w-20 flex-shrink-0" style="font-size:8px">videoUrl</span>
+                <span id="result-url" class="code text-indigo-300 truncate"></span>
+              </div>
+              <div class="flex items-center gap-2 text-xs border-t border-white/[0.04] pt-2">
+                <span class="section-label w-20 flex-shrink-0" style="font-size:8px">Presigned</span>
+                <span class="code text-emerald-300 truncate">https://ai-gen-video-storage.s3.amazonaws.com/videos/...</span>
+              </div>
+              <div class="flex items-center gap-2 text-xs border-t border-white/[0.04] pt-2">
+                <span class="section-label w-20 flex-shrink-0" style="font-size:8px">expires</span>
+                <span class="text-slate-400 code">24시간</span>
+              </div>
+            </div>
+
+            <button class="w-full py-2.5 rounded-xl text-xs font-semibold text-emerald-300 border border-emerald-500/25 hover:bg-emerald-500/10 hover:border-emerald-500/40 transition-all">
+              GET /videos/:id/result — Presigned URL 발급 →
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── RIGHT: API LOG ── -->
+      <div class="space-y-4">
+        <div class="panel p-5 panel-fadein" style="min-height: 400px;">
+          <h2 class="section-label mb-4 flex items-center gap-2">
+            <svg class="w-3.5 h-3.5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+            </svg>
+            API Log
+            <button onclick="clearLog()" class="ml-auto text-xs text-slate-600 hover:text-slate-300 transition-colors font-normal normal-case tracking-normal">clear</button>
+          </h2>
+          <div id="api-log" class="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto pr-1">
+            <div class="text-xs text-slate-600 italic">API 호출 대기 중...</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /grid -->
+
+    <!-- ── EXPLAINER BAR ── -->
+    <div class="border-t border-white/[0.05] py-12 px-6" style="background:rgba(5,5,13,0.6)">
+      <div class="max-w-5xl mx-auto grid md:grid-cols-3 gap-4">
+        <div class="explainer-card">
+          <div class="w-8 h-8 rounded-xl mb-3 flex items-center justify-center" style="background:rgba(99,102,241,0.15); border:1px solid rgba(99,102,241,0.2)">
+            <svg class="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+            </svg>
+          </div>
+          <div class="section-label text-indigo-400 mb-2">BullMQ Queue</div>
+          <p class="text-slate-500 text-xs leading-relaxed">POST /videos는 즉시 응답 (< 100ms). 실제 처리는 Worker가 비동기로 담당합니다.</p>
+        </div>
+        <div class="explainer-card">
+          <div class="w-8 h-8 rounded-xl mb-3 flex items-center justify-center" style="background:rgba(167,139,250,0.15); border:1px solid rgba(167,139,250,0.2)">
+            <svg class="w-4 h-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            </svg>
+          </div>
+          <div class="section-label text-violet-400 mb-2">WebSocket Push</div>
+          <p class="text-slate-500 text-xs leading-relaxed">클라이언트는 video:&#123;videoId&#125; Room을 구독하고 서버 push를 기다립니다. 폴링 없음.</p>
+        </div>
+        <div class="explainer-card">
+          <div class="w-8 h-8 rounded-xl mb-3 flex items-center justify-center" style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.2)">
+            <svg class="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+            </svg>
+          </div>
+          <div class="section-label text-amber-400 mb-2">Dead Letter Queue</div>
+          <p class="text-slate-500 text-xs leading-relaxed">3회 재시도 소진 시 failed_jobs 테이블에 저장. POST /retry로 수동 재처리 가능.</p>
         </div>
       </div>
     </div>
 
-    <!-- ── RIGHT: API LOG ── -->
-    <div class="space-y-4">
-      <div class="panel p-5 h-full">
-        <h2 class="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-          <svg class="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-          API Log
-          <button onclick="clearLog()" class="ml-auto text-xs text-slate-600 hover:text-slate-400 transition-colors">clear</button>
-        </h2>
-        <div id="api-log" class="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
-          <div class="text-xs text-slate-600 italic">API 호출 대기 중...</div>
-        </div>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- EXPLAINER BAR -->
-  <div class="border-t border-white/5 py-8 px-6" style="background:rgba(99,102,241,0.03)">
-    <div class="max-w-5xl mx-auto grid md:grid-cols-3 gap-6 text-center">
-      <div>
-        <div class="text-indigo-400 text-xs font-semibold uppercase tracking-widest mb-2">BullMQ Queue</div>
-        <p class="text-slate-500 text-xs">POST /videos는 즉시 응답 (< 100ms). 실제 처리는 Worker가 비동기로 담당합니다.</p>
-      </div>
-      <div>
-        <div class="text-violet-400 text-xs font-semibold uppercase tracking-widest mb-2">WebSocket Push</div>
-        <p class="text-slate-500 text-xs">클라이언트는 video:&#123;videoId&#125; Room을 구독하고 서버 push를 기다립니다. 폴링 없음.</p>
-      </div>
-      <div>
-        <div class="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-2">Dead Letter Queue</div>
-        <p class="text-slate-500 text-xs">3회 재시도 소진 시 failed_jobs 테이블에 저장. POST /retry로 수동 재처리 가능.</p>
-      </div>
-    </div>
-  </div>
+  </div><!-- /page-content -->
 
 <script>
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -408,21 +892,26 @@ function highlight(json) {
 // ─── Radio buttons ────────────────────────────────────────────────────────────
 document.querySelectorAll('input[name="scenario"]').forEach(radio => {
   radio.addEventListener('change', () => {
-    document.querySelectorAll('.toggle-radio div').forEach(d => d.classList.add('hidden'));
-    document.querySelector(`#${radio.id} ~ .toggle-radio div`) ||
-      radio.parentElement.querySelector('.toggle-radio div').classList.remove('hidden');
-    // simpler: just update all
     document.querySelectorAll('input[name="scenario"]').forEach(r => {
-      const dot = r.closest('label').querySelector('.toggle-radio div');
+      const dot = r.closest('label').querySelector('.toggle-radio-dot');
       const ring = r.closest('label').querySelector('.toggle-radio');
-      if (r.checked) { dot.classList.remove('hidden'); ring.style.borderColor = dot.classList.contains('bg-indigo-500')?'#6366f1':dot.classList.contains('bg-amber-500')?'#f59e0b':'#ef4444'; }
-      else { dot.classList.add('hidden'); ring.style.borderColor=''; }
+      if (r.checked) {
+        dot.style.opacity = '1';
+        dot.style.transform = 'scale(1)';
+        const color = dot.classList.contains('bg-indigo-500') ? '#6366f1'
+                    : dot.classList.contains('bg-amber-500') ? '#f59e0b' : '#f43f5e';
+        ring.style.borderColor = color;
+      } else {
+        dot.style.opacity = '0';
+        dot.style.transform = 'scale(0)';
+        ring.style.borderColor = 'rgba(148,163,184,0.3)';
+      }
     });
   });
 });
 
 // Init radio display
-document.querySelector('#sc-success').closest('label').querySelector('.toggle-radio div').classList.remove('hidden');
+document.querySelector('#sc-success').closest('label').querySelector('.toggle-radio div').style.opacity = '1';
 
 // Duration label
 document.getElementById('duration').addEventListener('input', e => {
@@ -436,16 +925,16 @@ function addApiLog(method, path, statusCode, requestBody, responseBody, ms) {
   const statusColor = statusCode >= 400 ? 'text-red-400' : statusCode >= 200 ? 'text-emerald-400' : 'text-slate-400';
   const methodClass = `method-${method}`;
   const el = document.createElement('div');
-  el.className = 'log-entry info rounded-lg p-3 space-y-2';
+  el.className = 'log-entry info rounded-xl p-3 space-y-2';
   el.innerHTML = `
     <div class="flex items-center gap-2 flex-wrap">
       <span class="api-method ${methodClass}">${method}</span>
       <span class="code text-slate-300 text-xs">${path}</span>
-      <span class="ml-auto ${statusColor} code text-xs">${statusCode}</span>
+      <span class="ml-auto ${statusColor} code text-xs font-bold">${statusCode}</span>
       <span class="text-slate-600 code text-xs">${ms}ms</span>
     </div>
-    ${requestBody ? `<details class="text-xs"><summary class="text-slate-500 cursor-pointer hover:text-slate-300">Request</summary><pre class="code mt-1 p-2 rounded" style="background:rgba(0,0,0,0.3);overflow-x:auto">${highlight(requestBody)}</pre></details>` : ''}
-    ${responseBody ? `<details class="text-xs"><summary class="text-slate-500 cursor-pointer hover:text-slate-300">Response</summary><pre class="code mt-1 p-2 rounded" style="background:rgba(0,0,0,0.3);overflow-x:auto">${highlight(responseBody)}</pre></details>` : ''}
+    ${requestBody ? `<details class="text-xs"><summary class="text-slate-500 cursor-pointer hover:text-slate-300 transition-colors">Request</summary><pre class="code mt-1 p-2 rounded-lg" style="background:rgba(0,0,0,0.35);overflow-x:auto">${highlight(requestBody)}</pre></details>` : ''}
+    ${responseBody ? `<details class="text-xs"><summary class="text-slate-500 cursor-pointer hover:text-slate-300 transition-colors">Response</summary><pre class="code mt-1 p-2 rounded-lg" style="background:rgba(0,0,0,0.35);overflow-x:auto">${highlight(responseBody)}</pre></details>` : ''}
   `;
   log.appendChild(el);
   el.scrollIntoView({ behavior:'smooth', block:'nearest' });
@@ -455,8 +944,8 @@ function addWsLog(event, payload, type='ws') {
   const log = document.getElementById('ws-log');
   if (log.querySelector('.italic')) log.innerHTML = '';
   const el = document.createElement('div');
-  el.className = `log-entry ${type} rounded px-2.5 py-1.5`;
-  el.innerHTML = `<span class="text-slate-500">${timestamp()}</span> <span class="text-violet-300">↓</span> <span class="text-violet-200 font-medium">${event}</span> <span class="text-slate-400">${JSON.stringify(payload)}</span>`;
+  el.className = `log-entry ${type} rounded-lg px-2.5 py-1.5`;
+  el.innerHTML = `<span class="text-slate-600">${timestamp()}</span> <span class="text-violet-400">↓</span> <span class="text-violet-200 font-medium">${event}</span> <span class="text-slate-400">${JSON.stringify(payload)}</span>`;
   log.appendChild(el);
   log.scrollTop = log.scrollHeight;
 }
@@ -465,8 +954,8 @@ function addWsOutLog(event, payload) {
   const log = document.getElementById('ws-log');
   if (log.querySelector('.italic')) log.innerHTML = '';
   const el = document.createElement('div');
-  el.className = 'log-entry info rounded px-2.5 py-1.5';
-  el.innerHTML = `<span class="text-slate-500">${timestamp()}</span> <span class="text-indigo-300">↑</span> <span class="text-indigo-200 font-medium">${event}</span> <span class="text-slate-400">${JSON.stringify(payload)}</span>`;
+  el.className = 'log-entry info rounded-lg px-2.5 py-1.5';
+  el.innerHTML = `<span class="text-slate-600">${timestamp()}</span> <span class="text-indigo-400">↑</span> <span class="text-indigo-200 font-medium">${event}</span> <span class="text-slate-400">${JSON.stringify(payload)}</span>`;
   log.appendChild(el);
   log.scrollTop = log.scrollHeight;
 }
@@ -485,19 +974,25 @@ function setProgress(pct, msg) {
 
 function activateStep(step) {
   document.querySelector(`[data-step="${step}"]`).querySelector('.step-icon').className =
-    'step-icon w-5 h-5 rounded-full border border-indigo-500 bg-indigo-500/20 flex items-center justify-center flex-shrink-0 text-indigo-300';
+    'step-icon w-[19px] h-[19px] rounded-full border border-indigo-500 bg-indigo-500/20 flex items-center justify-center flex-shrink-0 text-indigo-300 z-10';
+  document.querySelector(`[data-step="${step}"]`).querySelector('.step-icon').style.background = 'rgba(99,102,241,0.2)';
+  document.querySelector(`[data-step="${step}"]`).querySelector('.step-icon').style.boxShadow = '0 0 8px rgba(99,102,241,0.5)';
 }
 
 function completeStep(step) {
   const icon = document.querySelector(`[data-step="${step}"]`).querySelector('.step-icon');
-  icon.className = 'step-icon w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500 flex items-center justify-center flex-shrink-0 text-emerald-400';
-  icon.innerHTML = '<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>';
+  icon.className = 'step-icon w-[19px] h-[19px] rounded-full bg-emerald-500/20 border border-emerald-500 flex items-center justify-center flex-shrink-0 text-emerald-400 z-10';
+  icon.style.background = 'rgba(16,185,129,0.2)';
+  icon.style.boxShadow = '0 0 8px rgba(16,185,129,0.4)';
+  icon.innerHTML = '<svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>';
 }
 
 function failStep(step) {
   const icon = document.querySelector(`[data-step="${step}"]`).querySelector('.step-icon');
-  icon.className = 'step-icon w-5 h-5 rounded-full bg-red-500/20 border border-red-500 flex items-center justify-center flex-shrink-0 text-red-400';
-  icon.innerHTML = '<svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>';
+  icon.className = 'step-icon w-[19px] h-[19px] rounded-full bg-red-500/20 border border-red-500 flex items-center justify-center flex-shrink-0 text-red-400 z-10';
+  icon.style.background = 'rgba(244,63,94,0.15)';
+  icon.style.boxShadow = '0 0 8px rgba(244,63,94,0.4)';
+  icon.innerHTML = '<svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>';
 }
 
 function wsIndicator(connected) {
@@ -531,7 +1026,7 @@ async function startDemo() {
   const prompt = document.getElementById('prompt').value.trim();
   if (!prompt) {
     document.getElementById('prompt').focus();
-    document.getElementById('prompt').style.borderColor = '#ef4444';
+    document.getElementById('prompt').style.borderColor = '#f43f5e';
     setTimeout(() => document.getElementById('prompt').style.borderColor = '', 1500);
     return;
   }
@@ -566,7 +1061,9 @@ async function startDemo() {
 
   // Reset steps
   document.querySelectorAll('.step-icon').forEach((el, i) => {
-    el.className = 'step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600';
+    el.className = 'step-icon w-[19px] h-[19px] rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600 z-10';
+    el.style.background = '#05050d';
+    el.style.boxShadow = 'none';
     el.textContent = i+1;
   });
 
@@ -619,7 +1116,9 @@ async function startDemo() {
     document.getElementById('job-id').textContent = '#' + newJobId;
     document.getElementById('attempt-text').textContent = '2/3';
     document.querySelectorAll('.step-icon').forEach((el, i) => {
-      el.className = 'step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600';
+      el.className = 'step-icon w-[19px] h-[19px] rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600 z-10';
+      el.style.background = '#05050d';
+      el.style.boxShadow = 'none';
       el.textContent = i+1;
     });
     activateStep('processing');
@@ -648,7 +1147,9 @@ async function startDemo() {
         addApiLog('STATUS', `${backoff}s backoff`, null, null, { nextAttempt: attempt+1, backoffMs: backoff*1000 }, 0);
         await sleep(1500);
         document.querySelectorAll('.step-icon').forEach((el, i) => {
-          el.className = 'step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600';
+          el.className = 'step-icon w-[19px] h-[19px] rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600 z-10';
+          el.style.background = '#05050d';
+          el.style.boxShadow = 'none';
           el.textContent = i+1;
         });
       }
@@ -729,6 +1230,17 @@ async function runSuccess(width, height, fps, duration, videoId, jobId_) {
   document.getElementById('result-duration').textContent = duration + 's · ' + fps + 'fps';
   document.getElementById('result-resolution').textContent = width+'×'+height;
   document.getElementById('result-panel').classList.remove('hidden');
+
+  // Generate stars in the thumbnail
+  const starField = document.getElementById('star-field');
+  starField.innerHTML = '';
+  for (let i = 0; i < 60; i++) {
+    const star = document.createElement('div');
+    star.className = 'star';
+    star.style.cssText = `left:${Math.random()*100}%;top:${Math.random()*100}%;--dur:${2+Math.random()*4}s;--delay:${-Math.random()*4}s;opacity:${0.1+Math.random()*0.4}`;
+    starField.appendChild(star);
+  }
+
   wsIndicator(false);
 }
 
@@ -739,16 +1251,16 @@ function renderDlq() {
     return;
   }
   list.innerHTML = dlqItems.map(item => `
-    <div class="p-3 rounded-lg border border-red-500/20 bg-red-500/5 space-y-2">
+    <div class="p-3 rounded-xl border border-rose-500/20 bg-rose-500/5 space-y-2">
       <div class="flex items-center gap-2">
-        <span class="w-2 h-2 rounded-full bg-red-400 flex-shrink-0"></span>
-        <span class="code text-red-300 truncate text-xs">${item.videoId.slice(0,16)}...</span>
+        <span class="w-1.5 h-1.5 rounded-full bg-rose-400 flex-shrink-0" style="box-shadow:0 0 4px rgba(244,63,94,0.6)"></span>
+        <span class="code text-rose-300 truncate text-xs">${item.videoId.slice(0,16)}...</span>
       </div>
       <div class="text-xs text-slate-500">${item.errorMessage}</div>
       <div class="text-xs text-slate-600">시도: ${item.attemptsMade}회 · ${item.retried ? '<span class="text-amber-400">재처리됨</span>' : '미처리'}</div>
-      ${!item.retried ? `<button onclick="retryDlq('${item._dlqId}')" class="w-full py-1.5 rounded text-xs font-medium border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors">
+      ${!item.retried ? `<button onclick="retryDlq('${item._dlqId}')" class="w-full py-1.5 rounded-lg text-xs font-semibold border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors">
         POST /queue/failed-jobs/:id/retry →
-      </button>` : `<div class="text-xs text-slate-600">retryJobId: #${item.retryJobId}</div>`}
+      </button>` : `<div class="text-xs text-slate-600 code">retryJobId: #${item.retryJobId}</div>`}
     </div>
   `).join('');
 }
@@ -776,11 +1288,13 @@ function resetDemo() {
   setStatus('IDLE', 'IDLE');
   setProgress(0, '대기 중...');
   document.querySelectorAll('.step-icon').forEach((el, i) => {
-    el.className = 'step-icon w-5 h-5 rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600';
+    el.className = 'step-icon w-[19px] h-[19px] rounded-full border border-slate-700 flex items-center justify-center flex-shrink-0 text-slate-600 z-10';
+    el.style.background = '#05050d';
+    el.style.boxShadow = 'none';
     el.textContent = i+1;
   });
   document.getElementById('result-panel').classList.add('hidden');
-  document.getElementById('ws-log').innerHTML = '<div class="text-slate-600 italic">이벤트 대기 중...</div>';
+  document.getElementById('ws-log').innerHTML = '<div class="text-slate-600 italic" style="animation:none;opacity:1">이벤트 대기 중...</div>';
   wsIndicator(false);
 }
 </script>
